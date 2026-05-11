@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Search · {{ q }}{% endblock %}
+{% block content %}
+<h1 class="text-xl font-bold mb-4">Results for "{{ q }}"</h1>
+
+{% if results %}
+<ul class="space-y-3">
+  {% for r in results %}
+  <li class="flex gap-4 bg-white rounded shadow p-3">
+    <a href="/magazine/{{ r.magazine_id }}/page/{{ r.page_number }}?q={{ q|urlencode }}">
+      <img src="/bundle/{{ r.thumb_path }}" alt=""
+           class="w-24 h-32 object-cover border border-slate-200">
+    </a>
+    <div class="flex-1">
+      <div class="font-semibold">
+        <a href="/magazine/{{ r.magazine_id }}">{{ r.magazine_title }}</a>
+        <span class="text-slate-500 text-sm">— page {{ r.page_number }}</span>
+      </div>
+      <div class="text-sm text-slate-700 mt-1">{{ r.snippet|safe }}</div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+
+<div class="mt-6 flex gap-3">
+  {% if page > 1 %}
+    <a class="text-slate-600 hover:underline"
+       href="/search?q={{ q|urlencode }}&page={{ page - 1 }}">← Previous</a>
+  {% endif %}
+  {% if has_more %}
+    <a class="text-slate-600 hover:underline"
+       href="/search?q={{ q|urlencode }}&page={{ page + 1 }}">Next →</a>
+  {% endif %}
+</div>
+{% else %}
+<p class="text-slate-500">No results.</p>
+{% endif %}
+{% endblock %}
