@@ -85,7 +85,7 @@ def test_pipeline_force_overwrites(tmp_path: Path):
     IngestPipeline(bundles, _scripted_engine_for(1), opts).run(src, force=True)
     post = (bundles / "byte-1985-12" / "manifest.json").stat().st_mtime_ns
 
-    assert post >= pre
+    assert post > pre
 
 
 def test_pipeline_rejects_unknown_format(tmp_path: Path):

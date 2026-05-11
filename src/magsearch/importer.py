@@ -1,3 +1,4 @@
+import html
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -57,7 +58,7 @@ def import_bundle(bundle_dir: Path, session: Session) -> str:
             page_number=entry.page_number,
             image_path=f"{manifest.id}/{entry.image_path}",
             thumb_path=f"{manifest.id}/{entry.thumb_path}",
-            text=entry.text,
+            text=html.escape(entry.text),
         ))
     return manifest.id
 

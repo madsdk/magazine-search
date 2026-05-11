@@ -1,4 +1,5 @@
 import json
+import logging
 import shutil
 from dataclasses import dataclass, field
 from datetime import date
@@ -77,7 +78,14 @@ class IngestPipeline:
             encode_page(image, page_img)
             encode_thumb(image, thumb_img)
 
-            regions: list[OCRRegion] = self.engine.recognize(image)
+            try:
+                regions: list[OCRRegion] = self.engine.recognize(image)
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "OCR failed on page %d of %s: %s — recording empty text",
+                    page_num, source.name, exc,
+                )
+                regions = []
             ocr_json.write_text(json.dumps([
                 {"text": r.text, "bbox": list(r.bbox), "confidence": r.confidence}
                 for r in regions

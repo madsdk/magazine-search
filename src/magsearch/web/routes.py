@@ -34,12 +34,13 @@ def search_route(
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     offset = (page - 1) * _PAGE_SIZE
-    results = search(db, q, offset=offset, limit=_PAGE_SIZE)
+    results = search(db, q, offset=offset, limit=_PAGE_SIZE + 1)
+    has_more = len(results) > _PAGE_SIZE
+    results = results[:_PAGE_SIZE]
     return _TEMPLATES.TemplateResponse(
         request,
         "search.html",
-        {"q": q, "results": results, "page": page,
-         "has_more": len(results) == _PAGE_SIZE},
+        {"q": q, "results": results, "page": page, "has_more": has_more},
     )
 
 
