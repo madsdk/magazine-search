@@ -1,13 +1,14 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from magsearch.models import Magazine
 from magsearch.models import Page as PageModel
+from magsearch.settings import Settings, get_settings
 from magsearch.web.deps import get_db
 from magsearch.web.search import search
 
@@ -108,3 +109,16 @@ def page_view(
             "has_next": page_number < mag.page_count,
         },
     )
+
+
+@router.get("/bundle/{path:path}")
+def serve_bundle(path: str, settings: Settings = Depends(get_settings)):
+    root = settings.bundles_dir.resolve()
+    candidate = (root / path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="not found")
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(candidate)
