@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ mag.title }} · p. {{ page.page_number }}{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-3">
+  <a href="/magazine/{{ mag.id }}" class="text-slate-600 hover:underline">← {{ mag.title }}</a>
+  <div class="flex gap-3">
+    {% if has_prev %}
+    <a href="/magazine/{{ mag.id }}/page/{{ page.page_number - 1 }}{% if q %}?q={{ q|urlencode }}{% endif %}"
+       class="text-slate-600 hover:underline">Previous</a>
+    {% endif %}
+    <span class="text-slate-500">p. {{ page.page_number }} / {{ mag.page_count }}</span>
+    {% if has_next %}
+    <a href="/magazine/{{ mag.id }}/page/{{ page.page_number + 1 }}{% if q %}?q={{ q|urlencode }}{% endif %}"
+       class="text-slate-600 hover:underline">Next</a>
+    {% endif %}
+  </div>
+</div>
+{% if q %}
+<div class="mb-2 text-sm">
+  <a href="/search?q={{ q|urlencode }}" class="text-blue-700 underline">
+    ← Back to results for "{{ q }}"
+  </a>
+</div>
+{% endif %}
+<img src="/bundle/{{ page.image_path }}" alt="" class="w-full shadow border">
+{% endblock %}

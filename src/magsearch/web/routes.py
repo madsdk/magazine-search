@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from magsearch.models import Magazine
+from magsearch.models import Page as PageModel
 from magsearch.web.deps import get_db
 from magsearch.web.search import search
 
@@ -74,4 +75,36 @@ def magazine_detail(
         request,
         "magazine.html",
         {"mag": mag, "pages": sorted(mag.pages, key=lambda p: p.page_number)},
+    )
+
+
+@router.get("/magazine/{magazine_id}/page/{page_number}", response_class=HTMLResponse)
+def page_view(
+    request: Request,
+    magazine_id: str,
+    page_number: int,
+    q: str = Query(default=""),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    mag = db.get(Magazine, magazine_id)
+    if mag is None:
+        raise HTTPException(status_code=404, detail="magazine not found")
+    page = db.scalar(
+        select(PageModel).where(
+            PageModel.magazine_id == magazine_id,
+            PageModel.page_number == page_number,
+        )
+    )
+    if page is None:
+        raise HTTPException(status_code=404, detail="page not found")
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "page.html",
+        {
+            "mag": mag,
+            "page": page,
+            "q": q,
+            "has_prev": page_number > 1,
+            "has_next": page_number < mag.page_count,
+        },
     )
