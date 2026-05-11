@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{% block title %}Magazine Search{% endblock %}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-900">
+<nav class="bg-white border-b border-slate-200">
+  <div class="max-w-5xl mx-auto px-4 py-3 flex items-center gap-6">
+    <a href="/" class="font-semibold">Magazine Search</a>
+    <a href="/magazines" class="text-slate-600 hover:text-slate-900">Browse</a>
+    <form action="/search" method="get" class="ml-auto flex gap-2">
+      <input type="text" name="q" value="{{ q | default('', true) }}"
+             placeholder="Search…"
+             class="border border-slate-300 rounded px-3 py-1 w-80">
+      <button class="bg-slate-900 text-white rounded px-3 py-1">Search</button>
+    </form>
+  </div>
+</nav>
+<main class="max-w-5xl mx-auto px-4 py-6">
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>
