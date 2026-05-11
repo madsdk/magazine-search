@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -38,4 +38,40 @@ def search_route(
         "search.html",
         {"q": q, "results": results, "page": page,
          "has_more": len(results) == _PAGE_SIZE},
+    )
+
+
+@router.get("/magazines", response_class=HTMLResponse)
+def magazines_index(
+    request: Request,
+    publisher: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    stmt = select(Magazine).order_by(Magazine.publication_date.desc().nullslast())
+    if publisher:
+        stmt = stmt.where(Magazine.publisher == publisher)
+    magazines = db.scalars(stmt).all()
+    all_publishers = db.scalars(
+        select(Magazine.publisher).where(Magazine.publisher.is_not(None)).distinct()
+    ).all()
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "magazines.html",
+        {"magazines": magazines, "publishers": all_publishers, "active": publisher},
+    )
+
+
+@router.get("/magazine/{magazine_id}", response_class=HTMLResponse)
+def magazine_detail(
+    request: Request,
+    magazine_id: str,
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    mag = db.get(Magazine, magazine_id)
+    if mag is None:
+        raise HTTPException(status_code=404, detail="magazine not found")
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "magazine.html",
+        {"mag": mag, "pages": sorted(mag.pages, key=lambda p: p.page_number)},
     )

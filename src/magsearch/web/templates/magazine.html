@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ mag.title }}{% endblock %}
+{% block content %}
+<div class="flex gap-6 mb-6">
+  <img src="/bundle/{{ mag.cover_path }}" alt="" class="w-48 shadow">
+  <div>
+    <h1 class="text-2xl font-bold">{{ mag.title }}</h1>
+    {% if mag.issue %}<div class="text-slate-600">{{ mag.issue }}</div>{% endif %}
+    {% if mag.publisher %}<div class="text-slate-500">{{ mag.publisher }}</div>{% endif %}
+    {% if mag.publication_date %}<div class="text-slate-500">{{ mag.publication_date }}</div>{% endif %}
+    <div class="text-slate-500 mt-2">{{ mag.page_count }} pages · {{ mag.original_format|upper }}</div>
+    <a href="/bundle/{{ mag.id }}/original.{{ mag.original_format }}"
+       class="inline-block mt-3 text-blue-700 underline">Download original</a>
+  </div>
+</div>
+
+<h2 class="text-lg font-semibold mb-3">Pages</h2>
+<ul class="grid grid-cols-6 gap-3">
+  {% for p in pages %}
+  <li>
+    <a href="/magazine/{{ mag.id }}/page/{{ p.page_number }}" class="block">
+      <img src="/bundle/{{ p.thumb_path }}" alt=""
+           class="w-full h-28 object-cover border">
+      <div class="text-xs text-slate-500 text-center mt-1">p. {{ p.page_number }}</div>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endblock %}
