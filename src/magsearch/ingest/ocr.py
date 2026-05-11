@@ -55,3 +55,40 @@ def concatenate_reading_order(regions: list[OCRRegion]) -> str:
         line.sort(key=lambda r: r.bbox[0])
         parts.append(" ".join(r.text for r in line))
     return " ".join(parts)
+
+
+def _try_import_paddleocr():
+    try:
+        from paddleocr import PaddleOCR  # type: ignore
+        return PaddleOCR
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError(
+            "PaddleOCR not installed — install with `pip install magsearch[ocr]`"
+        ) from exc
+
+
+class PaddleOCREngine:
+    name: str = "paddleocr"
+
+    def __init__(self, lang: str = "en", use_gpu: bool = True) -> None:
+        PaddleOCR = _try_import_paddleocr()
+        import paddleocr  # type: ignore
+        self.version = getattr(paddleocr, "__version__", "unknown")
+        self._impl = PaddleOCR(lang=lang, use_gpu=use_gpu, show_log=False)
+
+    def recognize(self, image):
+        import numpy as np  # type: ignore
+        arr = np.array(image.convert("RGB"))
+        raw = self._impl.ocr(arr, cls=True)
+        regions: list[OCRRegion] = []
+        if not raw or not raw[0]:
+            return regions
+        for box, (text, confidence) in raw[0]:
+            xs = [pt[0] for pt in box]
+            ys = [pt[1] for pt in box]
+            regions.append(OCRRegion(
+                text=text,
+                bbox=(min(xs), min(ys), max(xs), max(ys)),
+                confidence=float(confidence),
+            ))
+        return regions

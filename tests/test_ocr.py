@@ -49,3 +49,21 @@ def test_concatenate_reading_order_groups_by_line_tolerance():
         OCRRegion(text="left", bbox=(0, 102, 50, 122), confidence=1.0),
     ]
     assert concatenate_reading_order(regions) == "left right"
+
+
+import pytest
+from PIL import ImageDraw, ImageFont
+
+
+@pytest.mark.ocr
+def test_paddleocr_real_engine_reads_simple_text(tmp_path):
+    from magsearch.ingest.ocr import PaddleOCREngine
+
+    img = Image.new("RGB", (400, 100), "white")
+    d = ImageDraw.Draw(img)
+    d.text((20, 30), "HELLO WORLD", fill="black")
+
+    engine = PaddleOCREngine(use_gpu=False)
+    regions = engine.recognize(img)
+    joined = " ".join(r.text.upper() for r in regions)
+    assert "HELLO" in joined
