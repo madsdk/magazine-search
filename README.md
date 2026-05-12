@@ -120,26 +120,30 @@ On the server, import it:
 magsearch import /data/bundles/byte-1985-12
 ```
 
-(Or, if running the server in Docker: `docker compose exec magsearch magsearch import /data/bundles/byte-1985-12`.)
+(Or, if running the server in Docker: `docker exec magsearch magsearch import /data/bundles/byte-1985-12`.)
 
 The web app picks up the new magazine immediately.
 
 ## Deploying the web app with Docker
 
-The repo ships a `Dockerfile` and `docker-compose.yml` that build a single
-image for the server side (no GPU, no PaddleOCR).
+The repo ships a `Dockerfile` for the server side (no GPU, no PaddleOCR).
+Build and run it:
 
 ```bash
-docker compose up -d --build
+docker build -t magsearch .
+docker run -d --name magsearch --restart unless-stopped \
+  -p 8000:8000 -v "$(pwd)/data:/data" magsearch
 ```
 
 This:
 
-1. Builds the image (Python 3.11 slim + `unrar-free` for CBR support).
-2. Bind-mounts `./data` to `/data` in the container — that's where the SQLite
-   file and the bundle directories live.
-3. Runs `magsearch db upgrade` on start, then `magsearch web` on `0.0.0.0:8000`.
-4. Restarts on crash (`restart: unless-stopped`).
+1. Builds a Python 3.11 slim image with `unrar-free` installed for CBR
+   support.
+2. Bind-mounts `./data` to `/data` in the container — that's where the
+   SQLite file and the bundle directories live.
+3. Runs `magsearch db upgrade` on start, then `magsearch web` on
+   `0.0.0.0:8000`.
+4. Restarts on crash (`--restart unless-stopped`).
 
 Open `http://<server>:8000`. Put it behind a reverse proxy + VPN / Tailscale /
 Cloudflare Tunnel for "personal but accessible" exposure.
@@ -147,7 +151,7 @@ Cloudflare Tunnel for "personal but accessible" exposure.
 To import a bundle that you rsync'd into `./data/bundles/`:
 
 ```bash
-docker compose exec magsearch magsearch import /data/bundles/<magazine-id>
+docker exec magsearch magsearch import /data/bundles/<magazine-id>
 ```
 
 To inspect or back up: just copy `./data/` — that directory is the entire
@@ -199,7 +203,6 @@ src/magsearch/
 alembic/                 # migrations
 tests/                   # pytest suite
 Dockerfile
-docker-compose.yml
 ```
 
 ## Tests
