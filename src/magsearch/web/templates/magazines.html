@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Browse magazines{% endblock %}
+{% block content %}
+<div class="flex items-baseline justify-between mb-4">
+  <h1 class="text-xl font-bold">All magazines</h1>
+  {% if publishers %}
+  <form method="get" class="text-sm">
+    <label>Publisher:</label>
+    <select name="publisher" onchange="this.form.submit()" class="border rounded p-1">
+      <option value="">All</option>
+      {% for p in publishers %}
+      <option value="{{ p }}" {% if p == active %}selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
+</div>
+
+<ul class="grid grid-cols-3 gap-4">
+  {% for m in magazines %}
+  <li class="bg-white rounded shadow p-2">
+    <a href="/magazine/{{ m.id }}">
+      <img src="/bundle/{{ m.cover_path }}" alt="" class="w-full h-48 object-cover">
+      <div class="mt-2 font-semibold">{{ m.title }}</div>
+      {% if m.issue %}<div class="text-xs text-slate-500">{{ m.issue }}</div>{% endif %}
+      {% if m.publisher %}<div class="text-xs text-slate-400">{{ m.publisher }}</div>{% endif %}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4">Magazine Search</h1>
+<p class="text-slate-600 mb-6">Search the full text of your archive of scanned magazines.</p>
+
+{% if recent %}
+<h2 class="text-lg font-semibold mb-2">Recently ingested</h2>
+<ul class="grid grid-cols-3 gap-4">
+  {% for m in recent %}
+  <li class="bg-white rounded shadow p-2">
+    <a href="/magazine/{{ m.id }}">
+      <img src="/bundle/{{ m.cover_path }}" alt="" class="w-full h-40 object-cover">
+      <div class="mt-2 text-sm font-semibold">{{ m.title }}</div>
+      {% if m.issue %}<div class="text-xs text-slate-500">{{ m.issue }}</div>{% endif %}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}
