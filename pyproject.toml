@@ -24,8 +24,8 @@ dependencies = [
 
 [project.optional-dependencies]
 ocr = [
-    "paddleocr>=2.7",
-    "paddlepaddle>=2.6",
+    "paddleocr>=3.0",
+    "paddlepaddle>=3.0",
 ]
 dev = [
     "pytest>=8.0",

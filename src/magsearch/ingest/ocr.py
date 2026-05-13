@@ -70,22 +70,64 @@ def _try_import_paddleocr():
 class PaddleOCREngine:
     name: str = "paddleocr"
 
-    def __init__(self, lang: str = "en", use_gpu: bool = True) -> None:
+    def __init__(self, lang: str = "en", use_gpu: bool | None = None) -> None:
+        # Disable PIR-based execution. Under PaddlePaddle 3.3.x on CPU the PIR executor
+        # raises `ConvertPirAttribute2RuntimeAttribute not support
+        # [pir::ArrayAttribute<pir::DoubleAttribute>]` from onednn_instruction.cc on
+        # every OCR call. Setting the env var must happen before paddle is imported;
+        # the explicit set_flags after import is belt-and-suspenders for cases where
+        # paddle was already imported elsewhere.
+        import os
+        os.environ.setdefault("FLAGS_enable_pir_in_executor", "0")
+
         PaddleOCR = _try_import_paddleocr()
+        import paddle  # type: ignore
         import paddleocr  # type: ignore
+        paddle.set_flags({"FLAGS_enable_pir_in_executor": False})
         self.version = getattr(paddleocr, "__version__", "unknown")
-        self._impl = PaddleOCR(lang=lang, use_gpu=use_gpu, show_log=False)
+
+        # Auto-detect GPU when not specified. Passing device="gpu" when no GPU is
+        # actually present makes paddle silently fall back to CPU, and on that
+        # fallback path the PIR-executor flag above is NOT honored — every OCR
+        # call then fails with the ConvertPirAttribute error. Explicit device="cpu"
+        # avoids that.
+        if use_gpu is None:
+            try:
+                use_gpu = paddle.device.cuda.device_count() > 0
+            except Exception:
+                use_gpu = False
+
+        self._impl = PaddleOCR(
+            lang=lang,
+            device="gpu" if use_gpu else "cpu",
+            enable_mkldnn=False,
+            # Magazine scans are already aligned; skip the doc-orientation and
+            # UVDoc unwarping preprocessors so we don't run them on full-res input.
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            # PaddleOCR 3.x's default OCR pipeline ships `limit_side_len: 64,
+            # limit_type: min`, which is effectively "never downscale". For a
+            # 200-DPI magazine page (~3000 px) that asks PP-OCRv5_server_det for
+            # ~33 GB. Cap detection input at the model's native 960-px training
+            # resolution.
+            text_det_limit_side_len=960,
+            text_det_limit_type="max",
+        )
 
     def recognize(self, image):
         import numpy as np  # type: ignore
         arr = np.array(image.convert("RGB"))
-        raw = self._impl.ocr(arr, cls=True)
+        results = self._impl.predict(arr)
         regions: list[OCRRegion] = []
-        if not raw or not raw[0]:
+        if not results:
             return regions
-        for box, (text, confidence) in raw[0]:
-            xs = [pt[0] for pt in box]
-            ys = [pt[1] for pt in box]
+        result = results[0]
+        texts = result.get("rec_texts", [])
+        scores = result.get("rec_scores", [])
+        polys = result.get("rec_polys", result.get("dt_polys", []))
+        for text, confidence, poly in zip(texts, scores, polys):
+            xs = [float(pt[0]) for pt in poly]
+            ys = [float(pt[1]) for pt in poly]
             regions.append(OCRRegion(
                 text=text,
                 bbox=(min(xs), min(ys), max(xs), max(ys)),
