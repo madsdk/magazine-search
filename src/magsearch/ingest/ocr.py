@@ -1,6 +1,7 @@
 import contextlib
 import io
 import logging
+import sys
 import warnings
 from dataclasses import dataclass
 from typing import Protocol
@@ -94,6 +95,21 @@ def _silence_paddle_chatter(enabled: bool):
             logging.getLogger(n).setLevel(level)
 
 
+def _probe_gpu(paddle) -> tuple[bool, str]:
+    """Decide whether to enable GPU and explain why. Returns (use_gpu, reason)."""
+    if not paddle.is_compiled_with_cuda():
+        return False, (
+            "installed paddlepaddle is CPU-only — install paddlepaddle-gpu for GPU"
+        )
+    try:
+        count = paddle.device.cuda.device_count()
+    except Exception as exc:  # pragma: no cover
+        return False, f"CUDA probe failed: {exc}"
+    if count == 0:
+        return False, "paddle reports 0 CUDA devices"
+    return True, f"detected {count} CUDA device(s)"
+
+
 def _try_import_paddleocr():
     try:
         from paddleocr import PaddleOCR  # type: ignore
@@ -135,10 +151,18 @@ class PaddleOCREngine:
             # call then fails with the ConvertPirAttribute error. Explicit device="cpu"
             # avoids that.
             if use_gpu is None:
-                try:
-                    use_gpu = paddle.device.cuda.device_count() > 0
-                except Exception:
-                    use_gpu = False
+                use_gpu, reason = _probe_gpu(paddle)
+            elif use_gpu and not paddle.is_compiled_with_cuda():
+                raise RuntimeError(
+                    "GPU requested but installed paddlepaddle is CPU-only. "
+                    "Install paddlepaddle-gpu (matching your CUDA version) to use a GPU."
+                )
+            else:
+                reason = "explicitly requested"
+            print(
+                f"[ocr] device: {'gpu' if use_gpu else 'cpu'} ({reason})",
+                file=sys.stderr,
+            )
 
             self._impl = PaddleOCR(
                 lang=lang,

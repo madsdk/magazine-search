@@ -60,6 +60,10 @@ def ingest_cmd(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Show paddle/paddleocr init logs and warnings."
     ),
+    device: str = typer.Option(
+        "auto", "--device",
+        help="OCR device: auto (detect), cpu, or gpu. GPU requires paddlepaddle-gpu.",
+    ),
 ) -> None:
     settings = get_settings()
     target_bundles = bundles_dir or settings.bundles_dir
@@ -68,7 +72,12 @@ def ingest_cmd(
         engine = FakeOCREngine()
     else:
         from magsearch.ingest.ocr import PaddleOCREngine
-        engine = PaddleOCREngine(verbose=verbose)
+        device_norm = device.lower()
+        if device_norm not in {"auto", "cpu", "gpu"}:
+            typer.echo(f"--device must be auto, cpu, or gpu (got {device!r})", err=True)
+            raise typer.Exit(code=2)
+        use_gpu = None if device_norm == "auto" else (device_norm == "gpu")
+        engine = PaddleOCREngine(use_gpu=use_gpu, verbose=verbose)
     pipeline = IngestPipeline(
         bundles_root=target_bundles,
         ocr_engine=engine,

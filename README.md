@@ -80,6 +80,19 @@ Install the OCR extra (one-time):
 pip install -e ".[ocr]"
 ```
 
+The `[ocr]` extra installs the **CPU-only** `paddlepaddle` build. To OCR on a
+GPU, install the matching CUDA build *separately* (replace the `paddlepaddle`
+package — they conflict):
+
+```bash
+pip uninstall paddlepaddle
+pip install paddlepaddle-gpu  # or e.g. paddlepaddle-gpu==3.0.0.post118 for CUDA 11.8
+```
+
+`magsearch ingest` auto-detects the GPU at startup and prints the chosen
+device (e.g. `[ocr] device: gpu (detected 1 CUDA device(s))`). Force a
+specific device with `--device cpu` or `--device gpu`.
+
 Basic ingest:
 
 ```bash
@@ -107,6 +120,8 @@ Flags:
 | `--bundles-dir PATH` | Where to write the bundle directory |
 | `--force` | Re-run even if a bundle for this content-hash exists |
 | `--fake-ocr` | Use the deterministic fake engine (no PaddleOCR needed) — useful for testing |
+| `--device {auto,cpu,gpu}` | Override OCR device selection (default `auto`; `gpu` requires `paddlepaddle-gpu`) |
+| `-v, --verbose` | Show paddle / paddlex init logs and warnings |
 
 Ship a bundle to the server:
 
