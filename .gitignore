@@ -16,3 +16,5 @@ bundles/
 *.db-shm
 *.db-wal
 .env
+/ext_venv
+/.scratch

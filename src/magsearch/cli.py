@@ -1,3 +1,4 @@
+import time
 from datetime import date
 from pathlib import Path
 from typing import Annotated
@@ -38,6 +39,9 @@ def ingest_cmd(
     fake_ocr: bool = typer.Option(
         False, "--fake-ocr", help="Use FakeOCREngine (tests / dry runs)."
     ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show paddle/paddleocr init logs and warnings."
+    ),
 ) -> None:
     settings = get_settings()
     target_bundles = bundles_dir or settings.bundles_dir
@@ -46,7 +50,7 @@ def ingest_cmd(
         engine = FakeOCREngine()
     else:
         from magsearch.ingest.ocr import PaddleOCREngine
-        engine = PaddleOCREngine()
+        engine = PaddleOCREngine(verbose=verbose)
     pipeline = IngestPipeline(
         bundles_root=target_bundles,
         ocr_engine=engine,
@@ -56,8 +60,14 @@ def ingest_cmd(
             id_override=id_override,
         ),
     )
+    started = time.monotonic()
     result = pipeline.run(source, force=force)
-    typer.echo(f"ingested {result.id} → {result.bundle_dir}")
+    elapsed = int(time.monotonic() - started)
+    hours, remainder = divmod(elapsed, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    typer.echo(
+        f"ingested {result.id} → {result.bundle_dir} in {hours:02d}:{minutes:02d}:{seconds:02d}"
+    )
 
 
 @app.command("import")

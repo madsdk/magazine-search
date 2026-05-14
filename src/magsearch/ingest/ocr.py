@@ -1,3 +1,7 @@
+import contextlib
+import io
+import logging
+import warnings
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -57,6 +61,28 @@ def concatenate_reading_order(regions: list[OCRRegion]) -> str:
     return " ".join(parts)
 
 
+@contextlib.contextmanager
+def _silence_paddle_chatter(enabled: bool):
+    """Suppress paddle/paddlex init noise: the ccache UserWarning emitted when
+    `paddle` is imported, plus the `Creating model: ...` / `Model files already
+    exist...` lines printed to stdout while PaddleOCR loads its detection,
+    recognition, and orientation models."""
+    if not enabled:
+        yield
+        return
+    noisy_loggers = ("paddle", "paddlex", "paddleocr", "ppocr")
+    prior_levels = {n: logging.getLogger(n).level for n in noisy_loggers}
+    for n in noisy_loggers:
+        logging.getLogger(n).setLevel(logging.WARNING)
+    try:
+        with warnings.catch_warnings(), contextlib.redirect_stdout(io.StringIO()):
+            warnings.filterwarnings("ignore", category=UserWarning)
+            yield
+    finally:
+        for n, level in prior_levels.items():
+            logging.getLogger(n).setLevel(level)
+
+
 def _try_import_paddleocr():
     try:
         from paddleocr import PaddleOCR  # type: ignore
@@ -70,7 +96,12 @@ def _try_import_paddleocr():
 class PaddleOCREngine:
     name: str = "paddleocr"
 
-    def __init__(self, lang: str = "en", use_gpu: bool | None = None) -> None:
+    def __init__(
+        self,
+        lang: str = "en",
+        use_gpu: bool | None = None,
+        verbose: bool = False,
+    ) -> None:
         # Disable PIR-based execution. Under PaddlePaddle 3.3.x on CPU the PIR executor
         # raises `ConvertPirAttribute2RuntimeAttribute not support
         # [pir::ArrayAttribute<pir::DoubleAttribute>]` from onednn_instruction.cc on
@@ -80,39 +111,40 @@ class PaddleOCREngine:
         import os
         os.environ.setdefault("FLAGS_enable_pir_in_executor", "0")
 
-        PaddleOCR = _try_import_paddleocr()
-        import paddle  # type: ignore
-        import paddleocr  # type: ignore
-        paddle.set_flags({"FLAGS_enable_pir_in_executor": False})
-        self.version = getattr(paddleocr, "__version__", "unknown")
+        with _silence_paddle_chatter(enabled=not verbose):
+            PaddleOCR = _try_import_paddleocr()
+            import paddle  # type: ignore
+            import paddleocr  # type: ignore
+            paddle.set_flags({"FLAGS_enable_pir_in_executor": False})
+            self.version = getattr(paddleocr, "__version__", "unknown")
 
-        # Auto-detect GPU when not specified. Passing device="gpu" when no GPU is
-        # actually present makes paddle silently fall back to CPU, and on that
-        # fallback path the PIR-executor flag above is NOT honored — every OCR
-        # call then fails with the ConvertPirAttribute error. Explicit device="cpu"
-        # avoids that.
-        if use_gpu is None:
-            try:
-                use_gpu = paddle.device.cuda.device_count() > 0
-            except Exception:
-                use_gpu = False
+            # Auto-detect GPU when not specified. Passing device="gpu" when no GPU is
+            # actually present makes paddle silently fall back to CPU, and on that
+            # fallback path the PIR-executor flag above is NOT honored — every OCR
+            # call then fails with the ConvertPirAttribute error. Explicit device="cpu"
+            # avoids that.
+            if use_gpu is None:
+                try:
+                    use_gpu = paddle.device.cuda.device_count() > 0
+                except Exception:
+                    use_gpu = False
 
-        self._impl = PaddleOCR(
-            lang=lang,
-            device="gpu" if use_gpu else "cpu",
-            enable_mkldnn=False,
-            # Magazine scans are already aligned; skip the doc-orientation and
-            # UVDoc unwarping preprocessors so we don't run them on full-res input.
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            # PaddleOCR 3.x's default OCR pipeline ships `limit_side_len: 64,
-            # limit_type: min`, which is effectively "never downscale". For a
-            # 200-DPI magazine page (~3000 px) that asks PP-OCRv5_server_det for
-            # ~33 GB. Cap detection input at the model's native 960-px training
-            # resolution.
-            text_det_limit_side_len=960,
-            text_det_limit_type="max",
-        )
+            self._impl = PaddleOCR(
+                lang=lang,
+                device="gpu" if use_gpu else "cpu",
+                enable_mkldnn=False,
+                # Magazine scans are already aligned; skip the doc-orientation and
+                # UVDoc unwarping preprocessors so we don't run them on full-res input.
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                # PaddleOCR 3.x's default OCR pipeline ships `limit_side_len: 64,
+                # limit_type: min`, which is effectively "never downscale". For a
+                # 200-DPI magazine page (~3000 px) that asks PP-OCRv5_server_det for
+                # ~33 GB. Cap detection input at the model's native 960-px training
+                # resolution.
+                text_det_limit_side_len=960,
+                text_det_limit_type="max",
+            )
 
     def recognize(self, image):
         import numpy as np  # type: ignore
