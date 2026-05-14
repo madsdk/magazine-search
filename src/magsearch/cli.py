@@ -1,3 +1,4 @@
+import sys
 import time
 from datetime import date
 from pathlib import Path
@@ -17,6 +18,23 @@ from magsearch.settings import get_settings
 app = typer.Typer(no_args_is_help=True, help="Magazine search.")
 db_app = typer.Typer(no_args_is_help=True, help="Database commands.")
 app.add_typer(db_app, name="db")
+
+
+def _make_progress_reporter():
+    """Return a callback that overwrites a single stderr line with `page X/N`,
+    or None when stderr isn't a TTY (so piped logs aren't spammed with \\r)."""
+    if not sys.stderr.isatty():
+        return None
+    width = [0]
+
+    def report(current: int, total: int) -> None:
+        msg = f"page {current}/{total}"
+        pad = max(0, width[0] - len(msg))
+        sys.stderr.write("\r" + msg + " " * pad)
+        sys.stderr.flush()
+        width[0] = len(msg)
+
+    return report
 
 
 def _alembic_cfg() -> Config:
@@ -60,8 +78,11 @@ def ingest_cmd(
             id_override=id_override,
         ),
     )
+    on_page = _make_progress_reporter()
     started = time.monotonic()
-    result = pipeline.run(source, force=force)
+    result = pipeline.run(source, force=force, on_page=on_page)
+    if on_page is not None:
+        typer.echo("", err=True)  # finish the in-place progress line
     elapsed = int(time.monotonic() - started)
     hours, remainder = divmod(elapsed, 3600)
     minutes, seconds = divmod(remainder, 60)

@@ -30,6 +30,25 @@ def detect_format(path: Path) -> Format | None:
     return None
 
 
+def page_count(path: Path, fmt: Format) -> int:
+    if fmt == "pdf":
+        with fitz.open(str(path)) as doc:
+            return len(doc)
+    if fmt == "cbz":
+        with ZipFile(path) as zf:
+            return sum(
+                1 for n in zf.namelist()
+                if not n.endswith("/") and n.lower().endswith(_IMAGE_EXTS)
+            )
+    if fmt == "cbr":
+        with rarfile.RarFile(path) as rf:
+            return sum(
+                1 for n in rf.namelist()
+                if not n.endswith("/") and n.lower().endswith(_IMAGE_EXTS)
+            )
+    raise ValueError(f"unsupported format {fmt!r}")
+
+
 def read_pages(path: Path, fmt: Format) -> Iterator[tuple[int, Image.Image]]:
     if fmt == "pdf":
         yield from _read_pdf(path)

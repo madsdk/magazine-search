@@ -1,11 +1,12 @@
 import json
 import logging
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from magsearch.ingest.formats import detect_format, read_pages
+from magsearch.ingest.formats import detect_format, page_count, read_pages
 from magsearch.ingest.ids import content_hash, generate_id
 from magsearch.ingest.normalize import encode_page, encode_thumb, write_cover
 from magsearch.ingest.ocr import OCREngine, OCRRegion, concatenate_reading_order
@@ -39,10 +40,16 @@ class IngestPipeline:
         self.engine = ocr_engine
         self.options = options
 
-    def run(self, source: Path, force: bool = False) -> IngestResult:
+    def run(
+        self,
+        source: Path,
+        force: bool = False,
+        on_page: Callable[[int, int], None] | None = None,
+    ) -> IngestResult:
         fmt = detect_format(source)
         if fmt is None:
             raise ValueError(f"unrecognized format for {source}")
+        total_pages = page_count(source, fmt)
 
         hash_hex = content_hash(source)
         magazine_id = generate_id(
@@ -99,6 +106,9 @@ class IngestPipeline:
                 ocr_path=str(ocr_json.relative_to(bundle)),
                 text=page_text,
             ))
+
+            if on_page is not None:
+                on_page(page_num, total_pages)
 
         # cover = first thumbnail
         first_thumb = bundle / "thumbs" / "0001.webp"
