@@ -95,6 +95,30 @@ def _silence_paddle_chatter(enabled: bool):
             logging.getLogger(n).setLevel(level)
 
 
+def _check_paddle_compat(paddle) -> None:
+    """Catch paddle ↔ paddleocr/paddlex version skew before paddleocr does, with
+    a clearer message. paddlex 3.x calls AnalysisConfig.set_optimization_level
+    unconditionally; that method was added in paddlepaddle 3.x. PyPI's
+    `paddlepaddle-gpu` is pinned to 2.x, so users who `pip install paddlepaddle-gpu`
+    without using PaddlePaddle's own index land here."""
+    try:
+        AnalysisConfig = paddle.base.libpaddle.AnalysisConfig  # noqa: N806
+    except AttributeError:
+        return  # different paddle layout — let paddleocr surface its own error
+    if hasattr(AnalysisConfig, "set_optimization_level"):
+        return
+    version = getattr(paddle, "__version__", "unknown")
+    raise RuntimeError(
+        f"installed paddlepaddle ({version}) is too old for paddleocr 3.x — "
+        "AnalysisConfig.set_optimization_level is missing. "
+        "Install paddlepaddle (CPU) or paddlepaddle-gpu >= 3.0 from PaddlePaddle's "
+        "own index, e.g.:\n"
+        "  pip install paddlepaddle-gpu==3.3.1 "
+        "-i https://www.paddlepaddle.org.cn/packages/stable/cu118/\n"
+        "(replace cu118 with your CUDA version)."
+    )
+
+
 def _probe_gpu(paddle) -> tuple[bool, str]:
     """Decide whether to enable GPU and explain why. Returns (use_gpu, reason)."""
     if not paddle.is_compiled_with_cuda():
@@ -144,6 +168,7 @@ class PaddleOCREngine:
             import paddleocr  # type: ignore
             paddle.set_flags({"FLAGS_enable_pir_in_executor": False})
             self.version = getattr(paddleocr, "__version__", "unknown")
+            _check_paddle_compat(paddle)
 
             # Auto-detect GPU when not specified. Passing device="gpu" when no GPU is
             # actually present makes paddle silently fall back to CPU, and on that

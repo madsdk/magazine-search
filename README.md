@@ -82,11 +82,17 @@ pip install -e ".[ocr]"
 
 The `[ocr]` extra installs the **CPU-only** `paddlepaddle` build. To OCR on a
 GPU, install the matching CUDA build *separately* (replace the `paddlepaddle`
-package — they conflict):
+package — they conflict). **Do not `pip install paddlepaddle-gpu` from PyPI**:
+the PyPI package is pinned to 2.x and is incompatible with `paddleocr 3.x`
+(you'll get an `AnalysisConfig.set_optimization_level` `AttributeError` at
+ingest time). Install from PaddlePaddle's own index instead:
 
 ```bash
 pip uninstall paddlepaddle
-pip install paddlepaddle-gpu  # or e.g. paddlepaddle-gpu==3.0.0.post118 for CUDA 11.8
+# CUDA 11.8:
+pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
+# CUDA 12.6:
+pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
 ```
 
 `magsearch ingest` auto-detects the GPU at startup and prints the chosen
