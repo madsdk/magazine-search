@@ -18,3 +18,4 @@ bundles/
 .env
 /ext_venv
 /.scratch
+/.playwright-mcp

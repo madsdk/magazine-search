@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
@@ -42,6 +43,8 @@ def sanitize_query(raw: str) -> str:
 class SearchResult:
     magazine_id: str
     magazine_title: str
+    magazine_issue: str | None
+    magazine_date: date | None
     page_number: int
     thumb_path: str
     snippet: str
@@ -49,18 +52,28 @@ class SearchResult:
 
 _SEARCH_SQL = text("""
     SELECT
-        magazines.id          AS magazine_id,
-        magazines.title       AS magazine_title,
-        pages.page_number     AS page_number,
-        pages.thumb_path      AS thumb_path,
+        magazines.id               AS magazine_id,
+        magazines.title            AS magazine_title,
+        magazines.issue            AS magazine_issue,
+        magazines.publication_date AS magazine_date,
+        pages.page_number          AS page_number,
+        pages.thumb_path           AS thumb_path,
         snippet(pages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
     FROM pages_fts
     JOIN pages     ON pages_fts.rowid = pages.id
     JOIN magazines ON pages.magazine_id = magazines.id
     WHERE pages_fts MATCH :q
-    ORDER BY rank
+    ORDER BY magazines.title, magazines.publication_date, pages.page_number
     LIMIT :limit OFFSET :offset
 """).bindparams(bindparam("q"), bindparam("limit"), bindparam("offset"))
+
+
+def _coerce_date(value: object) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value))
 
 
 def search(session: Session, raw_query: str, *, offset: int, limit: int) -> list[SearchResult]:
@@ -75,6 +88,8 @@ def search(session: Session, raw_query: str, *, offset: int, limit: int) -> list
         SearchResult(
             magazine_id=r.magazine_id,
             magazine_title=r.magazine_title,
+            magazine_issue=r.magazine_issue,
+            magazine_date=_coerce_date(r.magazine_date),
             page_number=r.page_number,
             thumb_path=r.thumb_path,
             snippet=r.snippet,

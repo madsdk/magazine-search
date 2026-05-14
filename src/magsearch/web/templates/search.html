@@ -14,6 +14,8 @@
     <div class="flex-1">
       <div class="font-semibold">
         <a href="/magazine/{{ r.magazine_id }}">{{ r.magazine_title }}</a>
+        {% if r.magazine_issue %}<span class="text-slate-600 text-sm">#{{ r.magazine_issue }}</span>{% endif %}
+        {% if r.magazine_date %}<span class="text-slate-500 text-sm">· {{ r.magazine_date.strftime('%b %Y') }}</span>{% endif %}
         <span class="text-slate-500 text-sm">— page {{ r.page_number }}</span>
       </div>
       <div class="text-sm text-slate-700 mt-1">{{ r.snippet|safe }}</div>
