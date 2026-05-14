@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="mb-4">
+  <a href="/magazines" class="text-sm text-slate-600 hover:underline">← All magazines</a>
+  <h1 class="text-xl font-bold mt-1">{{ title }}</h1>
+  <p class="text-slate-500 text-sm">{{ issues|length }} issue{% if issues|length != 1 %}s{% endif %}</p>
+</div>
+
+<ul class="grid grid-cols-3 gap-4">
+  {% for m in issues %}
+  <li class="bg-white rounded shadow p-2">
+    <a href="/magazine/{{ m.id }}">
+      <img src="/bundle/{{ m.cover_path }}" alt="" class="w-full aspect-[3/4] object-cover">
+      <div class="mt-2 font-semibold">
+        {% if m.issue %}#{{ m.issue }}{% else %}{{ m.title }}{% endif %}
+      </div>
+      {% if m.publication_date %}<div class="text-xs text-slate-500">{{ m.publication_date.strftime('%b %Y') }}</div>{% endif %}
+      {% if m.publisher %}<div class="text-xs text-slate-400">{{ m.publisher }}</div>{% endif %}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endblock %}

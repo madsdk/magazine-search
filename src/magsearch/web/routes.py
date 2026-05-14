@@ -1,3 +1,4 @@
+from itertools import groupby
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -50,17 +51,49 @@ def magazines_index(
     publisher: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
-    stmt = select(Magazine).order_by(Magazine.publication_date.desc().nullslast())
+    stmt = select(Magazine).order_by(
+        Magazine.title, Magazine.publication_date.asc().nullslast()
+    )
     if publisher:
         stmt = stmt.where(Magazine.publisher == publisher)
-    magazines = db.scalars(stmt).all()
+    rows = db.scalars(stmt).all()
+    titles = []
+    for title, group in groupby(rows, key=lambda m: m.title):
+        items = list(group)
+        earliest = items[0]  # ordered ascending, so first = earliest
+        titles.append({
+            "title": title,
+            "issue_count": len(items),
+            "cover_path": earliest.cover_path,
+            "publisher": earliest.publisher,
+        })
     all_publishers = db.scalars(
         select(Magazine.publisher).where(Magazine.publisher.is_not(None)).distinct()
     ).all()
     return _TEMPLATES.TemplateResponse(
         request,
         "magazines.html",
-        {"magazines": magazines, "publishers": all_publishers, "active": publisher},
+        {"titles": titles, "publishers": all_publishers, "active": publisher},
+    )
+
+
+@router.get("/magazines/{title}", response_class=HTMLResponse)
+def magazine_issues(
+    request: Request,
+    title: str,
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    issues = db.scalars(
+        select(Magazine)
+        .where(Magazine.title == title)
+        .order_by(Magazine.publication_date.asc().nullslast())
+    ).all()
+    if not issues:
+        raise HTTPException(status_code=404, detail="magazine not found")
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "magazine_issues.html",
+        {"title": title, "issues": issues},
     )
 
 

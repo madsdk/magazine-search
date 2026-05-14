@@ -17,12 +17,12 @@
 </div>
 
 <ul class="grid grid-cols-3 gap-4">
-  {% for m in magazines %}
+  {% for m in titles %}
   <li class="bg-white rounded shadow p-2">
-    <a href="/magazine/{{ m.id }}">
+    <a href="/magazines/{{ m.title|urlencode }}">
       <img src="/bundle/{{ m.cover_path }}" alt="" class="w-full aspect-[3/4] object-cover">
       <div class="mt-2 font-semibold">{{ m.title }}</div>
-      {% if m.issue %}<div class="text-xs text-slate-500">{{ m.issue }}</div>{% endif %}
+      <div class="text-xs text-slate-500">{{ m.issue_count }} issue{% if m.issue_count != 1 %}s{% endif %}</div>
       {% if m.publisher %}<div class="text-xs text-slate-400">{{ m.publisher }}</div>{% endif %}
     </a>
   </li>
