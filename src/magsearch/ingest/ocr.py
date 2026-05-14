@@ -63,20 +63,31 @@ def concatenate_reading_order(regions: list[OCRRegion]) -> str:
 
 @contextlib.contextmanager
 def _silence_paddle_chatter(enabled: bool):
-    """Suppress paddle/paddlex init noise: the ccache UserWarning emitted when
-    `paddle` is imported, plus the `Creating model: ...` / `Model files already
-    exist...` lines printed to stdout while PaddleOCR loads its detection,
-    recognition, and orientation models."""
+    """Suppress paddle/paddlex init noise:
+    * the ccache `UserWarning` paddle emits when first imported,
+    * the `Creating model: ...` and `Model files already exist...` lines
+      paddlex logs while PaddleOCR loads its detection / recognition /
+      orientation models.
+
+    The latter go through paddlex's own logger (`paddlex.utils.logging`),
+    which writes directly to stderr with `propagate=False`, so neither a
+    stdout redirect nor a root-logger setting suppresses them. paddlex
+    also calls `setup_logging()` at import time, resetting its level to
+    INFO — so we have to import paddlex first, then lower the level."""
     if not enabled:
         yield
         return
     noisy_loggers = ("paddle", "paddlex", "paddleocr", "ppocr")
     prior_levels = {n: logging.getLogger(n).level for n in noisy_loggers}
-    for n in noisy_loggers:
-        logging.getLogger(n).setLevel(logging.WARNING)
     try:
         with warnings.catch_warnings(), contextlib.redirect_stdout(io.StringIO()):
             warnings.filterwarnings("ignore", category=UserWarning)
+            try:
+                import paddlex  # noqa: F401  — triggers setup_logging() at INFO
+            except Exception:
+                pass
+            for n in noisy_loggers:
+                logging.getLogger(n).setLevel(logging.WARNING)
             yield
     finally:
         for n, level in prior_levels.items():
