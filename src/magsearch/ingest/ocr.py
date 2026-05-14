@@ -114,7 +114,7 @@ def _check_paddle_compat(paddle) -> None:
         "Install paddlepaddle (CPU) or paddlepaddle-gpu >= 3.0 from PaddlePaddle's "
         "own index, e.g.:\n"
         "  pip install paddlepaddle-gpu==3.3.1 "
-        "-i https://www.paddlepaddle.org.cn/packages/stable/cu118/\n"
+        "--extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu118/\n"
         "(replace cu118 with your CUDA version)."
     )
 

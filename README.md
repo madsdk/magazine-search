@@ -90,10 +90,14 @@ ingest time). Install from PaddlePaddle's own index instead:
 ```bash
 pip uninstall paddlepaddle
 # CUDA 11.8:
-pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
+pip install paddlepaddle-gpu==3.3.1 --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu118/
 # CUDA 12.6:
-pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
+pip install paddlepaddle-gpu==3.3.1 --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu126/
 ```
+
+(Use `--extra-index-url` rather than `-i`: that keeps PyPI as the primary
+index for transitive dependencies like `httpx`/`numpy` and only falls back
+to PaddlePaddle's index for the `paddlepaddle-gpu` wheel itself.)
 
 `magsearch ingest` auto-detects the GPU at startup and prints the chosen
 device (e.g. `[ocr] device: gpu (detected 1 CUDA device(s))`). Force a

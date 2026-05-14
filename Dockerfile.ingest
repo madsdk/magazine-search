@@ -27,12 +27,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # System libs:
 #   python3.12, python3.12-venv — runtime + venv module (Ubuntu 24.04)
+#   libgomp1                    — GNU OpenMP runtime, required by paddle at import
 #   libgl1, libglib2.0-0        — required by OpenCV (pulled in by paddlex)
 #   unrar-free                  — CBR archive support
 #   ccache                      — silences paddle's "no ccache" warning
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       python3.12 python3.12-venv \
+      libgomp1 \
       libgl1 libglib2.0-0 \
       unrar-free ccache \
       ca-certificates \
@@ -49,7 +51,11 @@ RUN pip install --upgrade pip
 # (missing AnalysisConfig.set_optimization_level).
 ARG PADDLE_INDEX=https://www.paddlepaddle.org.cn/packages/stable/cu126/
 ARG PADDLE_VERSION=3.3.1
-RUN pip install "paddlepaddle-gpu==${PADDLE_VERSION}" -i "${PADDLE_INDEX}"
+# Use --extra-index-url so pip still queries PyPI for transitive deps (httpx,
+# numpy, etc.). With `-i` pip would look for *every* package on PaddlePaddle's
+# index, including PyPI packages it doesn't mirror, producing noisy DNS-retry
+# warnings.
+RUN pip install "paddlepaddle-gpu==${PADDLE_VERSION}" --extra-index-url "${PADDLE_INDEX}"
 
 # paddleocr only declares paddlex as a hard dep — installing it here, before
 # magsearch, avoids the [ocr] extra trying to pull the CPU `paddlepaddle`
