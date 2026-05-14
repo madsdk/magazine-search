@@ -99,6 +99,59 @@ pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/
 device (e.g. `[ocr] device: gpu (detected 1 CUDA device(s))`). Force a
 specific device with `--device cpu` or `--device gpu`.
 
+### Docker (GPU ingestion)
+
+The repo also ships `Dockerfile.ingest`, a GPU-ready image that bundles
+CUDA + cuDNN + a Python 3.12 venv + `paddlepaddle-gpu` + `paddleocr` + the
+`magsearch` CLI. Useful when you don't want to set up the OCR stack on the
+host. Requires the [NVIDIA Container Toolkit][nvct] on the host so Docker
+can expose the GPU.
+
+[nvct]: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+
+Build (defaults to CUDA 12.6):
+
+```bash
+docker build -f Dockerfile.ingest -t magsearch-ingest .
+```
+
+For CUDA 11.8, override the base image and PaddlePaddle index:
+
+```bash
+docker build -f Dockerfile.ingest \
+  --build-arg CUDA_BASE=nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 \
+  --build-arg PADDLE_INDEX=https://www.paddlepaddle.org.cn/packages/stable/cu118/ \
+  -t magsearch-ingest .
+```
+
+Run:
+
+```bash
+mkdir -p input output
+cp /path/to/byte-1985-12.pdf input/
+
+docker run --rm --gpus all \
+  -v "$PWD/input:/input" -v "$PWD/output:/output" \
+  magsearch-ingest ingest /input/byte-1985-12.pdf \
+    --title "Byte" --issue "Vol 10 No 12" \
+    --date 1985-12-01 --publisher "McGraw-Hill"
+```
+
+Bundles land in `./output/` on the host, ready to `rsync` to the server box.
+The container's entrypoint is `magsearch`, so `docker run … magsearch-ingest
+ingest …` becomes the natural invocation; `docker run … magsearch-ingest`
+with no arguments shows the CLI help.
+
+Optional persistence — mount a directory to `/root/.paddlex` so model
+downloads survive container restarts:
+
+```bash
+docker run --rm --gpus all \
+  -v "$PWD/input:/input" -v "$PWD/output:/output" \
+  -v "$PWD/paddlex-cache:/root/.paddlex" \
+  magsearch-ingest ingest /input/byte-1985-12.pdf …
+```
+
 Basic ingest:
 
 ```bash
@@ -178,14 +231,17 @@ docker exec magsearch magsearch import /data/bundles/<magazine-id>
 To inspect or back up: just copy `./data/` — that directory is the entire
 deployment state.
 
-### What's *not* dockerized
+### Two Dockerfiles
 
-The ingestion side. PaddleOCR with GPU acceleration is doable in Docker
-(NVIDIA Container Toolkit + the `paddlepaddle/paddle:*-gpu-cuda*` base
-images) but the friction is real, and ingestion is run interactively on a
-workstation rather than as a long-lived service. Install the package directly
-on the GPU box with `pip install -e ".[ocr]"` and rsync the resulting bundles
-to the server.
+- `Dockerfile` — server only. Lightweight Python 3.11 slim image, no GPU,
+  no PaddleOCR. Runs the FastAPI app and serves bundles. The section above
+  covers it.
+- `Dockerfile.ingest` — GPU ingestion. CUDA + cuDNN + paddlepaddle-gpu +
+  paddleocr + the `magsearch` CLI. Use it on the workstation; it's
+  documented under [Docker (GPU ingestion)](#docker-gpu-ingestion) above.
+
+The ingestion image is heavier (~5 GB unpacked, mostly CUDA) but means you
+don't have to set up CUDA / paddle on the host yourself.
 
 ## Configuration
 

@@ -1,0 +1,73 @@
+# GPU-enabled container for the magsearch ingestion pipeline.
+#
+# Defaults to CUDA 12.6. Override the base image and PaddlePaddle index to
+# match a different CUDA version (e.g. 11.8) via build args.
+#
+# Build (CUDA 12.6):
+#   docker build -f Dockerfile.ingest -t magsearch-ingest .
+#
+# Build (CUDA 11.8):
+#   docker build -f Dockerfile.ingest \
+#     --build-arg CUDA_BASE=nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 \
+#     --build-arg PADDLE_INDEX=https://www.paddlepaddle.org.cn/packages/stable/cu118/ \
+#     -t magsearch-ingest .
+#
+# Run (requires NVIDIA Container Toolkit on the host):
+#   docker run --rm --gpus all \
+#     -v "$PWD/input:/input" -v "$PWD/output:/output" \
+#     magsearch-ingest ingest /input/byte-1985-12.pdf \
+#       --title "Byte" --date 1985-12-01 --publisher "McGraw-Hill"
+
+ARG CUDA_BASE=nvidia/cuda:12.6.0-cudnn-runtime-ubuntu24.04
+FROM ${CUDA_BASE}
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+# System libs:
+#   python3.12, python3.12-venv — runtime + venv module (Ubuntu 24.04)
+#   libgl1, libglib2.0-0        — required by OpenCV (pulled in by paddlex)
+#   unrar-free                  — CBR archive support
+#   ccache                      — silences paddle's "no ccache" warning
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      python3.12 python3.12-venv \
+      libgl1 libglib2.0-0 \
+      unrar-free ccache \
+      ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Isolated venv keeps us out of PEP 668's externally-managed system Python.
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3.12 -m venv "$VIRTUAL_ENV"
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+RUN pip install --upgrade pip
+
+# Install paddlepaddle-gpu from PaddlePaddle's own index. PyPI's
+# `paddlepaddle-gpu` is pinned to 2.x and is incompatible with paddleocr 3.x
+# (missing AnalysisConfig.set_optimization_level).
+ARG PADDLE_INDEX=https://www.paddlepaddle.org.cn/packages/stable/cu126/
+ARG PADDLE_VERSION=3.3.1
+RUN pip install "paddlepaddle-gpu==${PADDLE_VERSION}" -i "${PADDLE_INDEX}"
+
+# paddleocr only declares paddlex as a hard dep — installing it here, before
+# magsearch, avoids the [ocr] extra trying to pull the CPU `paddlepaddle`
+# package (which would conflict with paddlepaddle-gpu).
+RUN pip install "paddleocr>=3.0"
+
+WORKDIR /app
+COPY pyproject.toml ./
+COPY src/ ./src/
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
+
+# Plain `pip install .` (no [ocr] extra) — paddleocr + paddlepaddle-gpu are
+# already in place from the layers above.
+RUN pip install .
+
+RUN mkdir -p /input /output
+ENV MAGSEARCH_BUNDLES_DIR=/output
+
+ENTRYPOINT ["magsearch"]
+CMD ["--help"]
