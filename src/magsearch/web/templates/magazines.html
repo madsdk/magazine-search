@@ -20,7 +20,7 @@
   {% for m in magazines %}
   <li class="bg-white rounded shadow p-2">
     <a href="/magazine/{{ m.id }}">
-      <img src="/bundle/{{ m.cover_path }}" alt="" class="w-full h-48 object-cover">
+      <img src="/bundle/{{ m.cover_path }}" alt="" class="w-full aspect-[3/4] object-cover">
       <div class="mt-2 font-semibold">{{ m.title }}</div>
       {% if m.issue %}<div class="text-xs text-slate-500">{{ m.issue }}</div>{% endif %}
       {% if m.publisher %}<div class="text-xs text-slate-400">{{ m.publisher }}</div>{% endif %}
