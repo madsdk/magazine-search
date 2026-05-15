@@ -39,9 +39,19 @@ def _make_progress_reporter():
 
 def _alembic_cfg() -> Config:
     settings = get_settings()
-    cfg = Config(str(Path(__file__).parent.parent.parent / "alembic.ini"))
-    cfg.set_main_option("sqlalchemy.url", settings.database_url)
-    return cfg
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here.parent.parent / "alembic.ini",  # editable install from source checkout
+        Path.cwd() / "alembic.ini",          # working directory (docker WORKDIR)
+    ]
+    for path in candidates:
+        if path.is_file():
+            cfg = Config(str(path))
+            cfg.set_main_option("sqlalchemy.url", settings.database_url)
+            return cfg
+    raise FileNotFoundError(
+        "alembic.ini not found in: " + ", ".join(str(p) for p in candidates)
+    )
 
 
 @app.command("ingest")
