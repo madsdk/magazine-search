@@ -4,34 +4,66 @@
 <h1 class="text-xl font-bold mb-4">Results for "{{ q }}"</h1>
 
 {% if results %}
-<ul class="space-y-3">
-  {% for r in results %}
-  <li class="flex gap-4 bg-white rounded shadow p-3">
-    <a href="/magazine/{{ r.magazine_id }}/page/{{ r.page_number }}?q={{ q|urlencode }}">
-      <img src="/bundle/{{ r.thumb_path }}" alt=""
-           class="w-24 h-32 object-cover border border-slate-200">
-    </a>
-    <div class="flex-1">
-      <div class="font-semibold">
-        <a href="/magazine/{{ r.magazine_id }}">{{ r.magazine_title }}</a>
-        {% if r.magazine_issue %}<span class="text-slate-600 text-sm">#{{ r.magazine_issue }}</span>{% endif %}
-        {% if r.magazine_date %}<span class="text-slate-500 text-sm">· {{ r.magazine_date.strftime('%b %Y') }}</span>{% endif %}
-        <span class="text-slate-500 text-sm">— page {{ r.page_number }}</span>
-      </div>
-      <div class="text-sm text-slate-700 mt-1">{{ r.snippet|safe }}</div>
+  {% if view == "flat" %}
+    <div class="mb-3 text-sm">
+      <a class="text-blue-700 hover:underline"
+         href="/search?q={{ q|urlencode }}">← Back to grouped view</a>
     </div>
-  </li>
-  {% endfor %}
-</ul>
+    <ul class="space-y-3">
+      {% for r in results %}
+      <li class="flex gap-4 bg-white rounded shadow p-3">
+        <a href="/magazine/{{ r.magazine_id }}/page/{{ r.page_number }}?q={{ q|urlencode }}">
+          <img src="/bundle/{{ r.thumb_path }}" alt=""
+               class="w-24 h-32 object-cover border border-slate-200">
+        </a>
+        <div class="flex-1">
+          <div class="font-semibold">
+            <a href="/magazine/{{ r.magazine_id }}?q={{ q|urlencode }}">{{ r.magazine_title }}</a>
+            {% if r.magazine_issue %}<span class="text-slate-600 text-sm">#{{ r.magazine_issue }}</span>{% endif %}
+            {% if r.magazine_date %}<span class="text-slate-500 text-sm">· {{ r.magazine_date.strftime('%b %Y') }}</span>{% endif %}
+            <span class="text-slate-500 text-sm">— page {{ r.page_number }}</span>
+          </div>
+          <div class="text-sm text-slate-700 mt-1">{{ r.snippet|safe }}</div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <ul class="space-y-3">
+      {% for r in results %}
+      <li class="bg-white rounded shadow">
+        <a href="/magazine/{{ r.magazine_id }}?q={{ q|urlencode }}"
+           class="flex gap-4 p-3 hover:bg-slate-50">
+          <img src="/bundle/{{ r.cover_path }}" alt=""
+               class="w-20 aspect-[3/4] object-cover border border-slate-200">
+          <div class="flex-1">
+            <div class="font-semibold">
+              {{ r.magazine_title }}
+              {% if r.magazine_issue %}<span class="text-slate-600 text-sm">#{{ r.magazine_issue }}</span>{% endif %}
+              {% if r.magazine_date %}<span class="text-slate-500 text-sm">· {{ r.magazine_date.strftime('%b %Y') }}</span>{% endif %}
+            </div>
+            <div class="text-sm text-slate-600 mt-1">
+              {{ r.match_count }} matching page{% if r.match_count != 1 %}s{% endif %}
+            </div>
+          </div>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="mt-4 text-sm">
+      <a class="text-blue-700 hover:underline"
+         href="/search?q={{ q|urlencode }}&view=flat">Show all matching pages →</a>
+    </div>
+  {% endif %}
 
 <div class="mt-6 flex gap-3">
   {% if page > 1 %}
     <a class="text-slate-600 hover:underline"
-       href="/search?q={{ q|urlencode }}&page={{ page - 1 }}">← Previous</a>
+       href="/search?q={{ q|urlencode }}&view={{ view }}&page={{ page - 1 }}">← Previous</a>
   {% endif %}
   {% if has_more %}
     <a class="text-slate-600 hover:underline"
-       href="/search?q={{ q|urlencode }}&page={{ page + 1 }}">Next →</a>
+       href="/search?q={{ q|urlencode }}&view={{ view }}&page={{ page + 1 }}">Next →</a>
   {% endif %}
 </div>
 {% else %}

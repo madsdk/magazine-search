@@ -2,7 +2,8 @@
 {% block title %}{{ mag.title }} · p. {{ page.page_number }}{% endblock %}
 {% block content %}
 <div class="flex items-center justify-between mb-3">
-  <a href="/magazine/{{ mag.id }}" class="text-slate-600 hover:underline">← {{ mag.title }}</a>
+  <a href="/magazine/{{ mag.id }}{% if q %}?q={{ q|urlencode }}{% endif %}"
+     class="text-slate-600 hover:underline">← {{ mag.title }}</a>
   <div class="flex gap-3">
     {% if has_prev %}
     <a href="/magazine/{{ mag.id }}/page/{{ page.page_number - 1 }}{% if q %}?q={{ q|urlencode }}{% endif %}"

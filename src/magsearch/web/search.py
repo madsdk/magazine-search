@@ -50,6 +50,16 @@ class SearchResult:
     snippet: str
 
 
+@dataclass(frozen=True)
+class MagazineMatch:
+    magazine_id: str
+    magazine_title: str
+    magazine_issue: str | None
+    magazine_date: date | None
+    cover_path: str
+    match_count: int
+
+
 _SEARCH_SQL = text("""
     SELECT
         magazines.id               AS magazine_id,
@@ -63,7 +73,46 @@ _SEARCH_SQL = text("""
     JOIN pages     ON pages_fts.rowid = pages.id
     JOIN magazines ON pages.magazine_id = magazines.id
     WHERE pages_fts MATCH :q
-    ORDER BY magazines.title, magazines.publication_date, pages.page_number
+    ORDER BY rank, magazines.title, magazines.publication_date, pages.page_number
+    LIMIT :limit OFFSET :offset
+""").bindparams(bindparam("q"), bindparam("limit"), bindparam("offset"))
+
+
+_SEARCH_IN_MAGAZINE_SQL = text("""
+    SELECT
+        magazines.id               AS magazine_id,
+        magazines.title            AS magazine_title,
+        magazines.issue            AS magazine_issue,
+        magazines.publication_date AS magazine_date,
+        pages.page_number          AS page_number,
+        pages.thumb_path           AS thumb_path,
+        snippet(pages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
+    FROM pages_fts
+    JOIN pages     ON pages_fts.rowid = pages.id
+    JOIN magazines ON pages.magazine_id = magazines.id
+    WHERE pages_fts MATCH :q AND pages.magazine_id = :magazine_id
+    ORDER BY rank, pages.page_number
+    LIMIT :limit OFFSET :offset
+""").bindparams(
+    bindparam("q"), bindparam("magazine_id"), bindparam("limit"), bindparam("offset")
+)
+
+
+_SEARCH_MAGAZINES_SQL = text("""
+    SELECT
+        magazines.id               AS magazine_id,
+        magazines.title            AS magazine_title,
+        magazines.issue            AS magazine_issue,
+        magazines.publication_date AS magazine_date,
+        magazines.cover_path       AS cover_path,
+        COUNT(*)                   AS match_count,
+        MIN(pages_fts.rank)        AS best_rank
+    FROM pages_fts
+    JOIN pages     ON pages_fts.rowid = pages.id
+    JOIN magazines ON pages.magazine_id = magazines.id
+    WHERE pages_fts MATCH :q
+    GROUP BY magazines.id
+    ORDER BY best_rank, magazines.title, magazines.publication_date
     LIMIT :limit OFFSET :offset
 """).bindparams(bindparam("q"), bindparam("limit"), bindparam("offset"))
 
@@ -76,6 +125,18 @@ def _coerce_date(value: object) -> date | None:
     return date.fromisoformat(str(value))
 
 
+def _row_to_result(r) -> SearchResult:
+    return SearchResult(
+        magazine_id=r.magazine_id,
+        magazine_title=r.magazine_title,
+        magazine_issue=r.magazine_issue,
+        magazine_date=_coerce_date(r.magazine_date),
+        page_number=r.page_number,
+        thumb_path=r.thumb_path,
+        snippet=r.snippet,
+    )
+
+
 def search(session: Session, raw_query: str, *, offset: int, limit: int) -> list[SearchResult]:
     q = sanitize_query(raw_query)
     if not q:
@@ -84,15 +145,50 @@ def search(session: Session, raw_query: str, *, offset: int, limit: int) -> list
         rows = session.execute(_SEARCH_SQL, {"q": q, "limit": limit, "offset": offset}).all()
     except Exception:
         return []
+    return [_row_to_result(r) for r in rows]
+
+
+def search_in_magazine(
+    session: Session,
+    raw_query: str,
+    magazine_id: str,
+    *,
+    offset: int,
+    limit: int,
+) -> list[SearchResult]:
+    q = sanitize_query(raw_query)
+    if not q:
+        return []
+    try:
+        rows = session.execute(
+            _SEARCH_IN_MAGAZINE_SQL,
+            {"q": q, "magazine_id": magazine_id, "limit": limit, "offset": offset},
+        ).all()
+    except Exception:
+        return []
+    return [_row_to_result(r) for r in rows]
+
+
+def search_magazines(
+    session: Session, raw_query: str, *, offset: int, limit: int
+) -> list[MagazineMatch]:
+    q = sanitize_query(raw_query)
+    if not q:
+        return []
+    try:
+        rows = session.execute(
+            _SEARCH_MAGAZINES_SQL, {"q": q, "limit": limit, "offset": offset}
+        ).all()
+    except Exception:
+        return []
     return [
-        SearchResult(
+        MagazineMatch(
             magazine_id=r.magazine_id,
             magazine_title=r.magazine_title,
             magazine_issue=r.magazine_issue,
             magazine_date=_coerce_date(r.magazine_date),
-            page_number=r.page_number,
-            thumb_path=r.thumb_path,
-            snippet=r.snippet,
+            cover_path=r.cover_path,
+            match_count=r.match_count,
         )
         for r in rows
     ]

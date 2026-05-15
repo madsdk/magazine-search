@@ -3,7 +3,7 @@
 {% block content %}
 <div class="flex gap-6 mb-6">
   <img src="/bundle/{{ mag.cover_path }}" alt="" class="w-48 aspect-[3/4] object-cover shadow">
-  <div>
+  <div class="flex-1">
     <h1 class="text-2xl font-bold">{{ mag.title }}</h1>
     {% if mag.issue %}<div class="text-slate-600">{{ mag.issue }}</div>{% endif %}
     {% if mag.publisher %}<div class="text-slate-500">{{ mag.publisher }}</div>{% endif %}
@@ -11,9 +11,17 @@
     <div class="text-slate-500 mt-2">{{ mag.page_count }} pages · {{ mag.original_format|upper }}</div>
     <a href="/bundle/{{ mag.id }}/original.{{ mag.original_format }}"
        class="inline-block mt-3 text-blue-700 underline">Download original</a>
+
+    <form action="/magazine/{{ mag.id }}" method="get" class="mt-4 flex gap-2">
+      <input type="text" name="q" value="{{ q | default('', true) }}"
+             placeholder="Search this issue…"
+             class="border border-slate-300 rounded px-3 py-1 w-72">
+      <button class="bg-slate-900 text-white rounded px-3 py-1">Search</button>
+    </form>
   </div>
 </div>
 
+{% if results is none %}
 <h2 class="text-lg font-semibold mb-3">Pages</h2>
 <ul class="grid grid-cols-6 gap-3">
   {% for p in pages %}
@@ -26,4 +34,43 @@
   </li>
   {% endfor %}
 </ul>
+{% else %}
+<div class="flex items-center justify-between mb-3">
+  <h2 class="text-lg font-semibold">Results in this issue for "{{ q }}"</h2>
+  <a href="/magazine/{{ mag.id }}" class="text-sm text-blue-700 hover:underline">← Back to all pages</a>
+</div>
+
+{% if results %}
+<ul class="space-y-3">
+  {% for r in results %}
+  <li class="flex gap-4 bg-white rounded shadow p-3">
+    <a href="/magazine/{{ mag.id }}/page/{{ r.page_number }}?q={{ q|urlencode }}">
+      <img src="/bundle/{{ r.thumb_path }}" alt=""
+           class="w-24 h-32 object-cover border border-slate-200">
+    </a>
+    <div class="flex-1">
+      <div class="font-semibold">
+        <a href="/magazine/{{ mag.id }}/page/{{ r.page_number }}?q={{ q|urlencode }}"
+           class="hover:underline">Page {{ r.page_number }}</a>
+      </div>
+      <div class="text-sm text-slate-700 mt-1">{{ r.snippet|safe }}</div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+
+<div class="mt-6 flex gap-3">
+  {% if page > 1 %}
+    <a class="text-slate-600 hover:underline"
+       href="/magazine/{{ mag.id }}?q={{ q|urlencode }}&page={{ page - 1 }}">← Previous</a>
+  {% endif %}
+  {% if has_more %}
+    <a class="text-slate-600 hover:underline"
+       href="/magazine/{{ mag.id }}?q={{ q|urlencode }}&page={{ page + 1 }}">Next →</a>
+  {% endif %}
+</div>
+{% else %}
+<p class="text-slate-500">No matches in this issue.</p>
+{% endif %}
+{% endif %}
 {% endblock %}
