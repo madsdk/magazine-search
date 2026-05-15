@@ -1,27 +1,77 @@
 {% extends "base.html" %}
 {% block title %}{{ mag.title }} · p. {{ page.page_number }}{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-3">
-  <a href="/magazine/{{ mag.id }}{% if q %}?q={{ q|urlencode }}{% endif %}"
-     class="text-slate-600 hover:underline">← {{ mag.title }}</a>
-  <div class="flex gap-3">
-    {% if has_prev %}
-    <a href="/magazine/{{ mag.id }}/page/{{ page.page_number - 1 }}{% if q %}?q={{ q|urlencode }}{% endif %}"
-       class="text-slate-600 hover:underline">Previous</a>
-    {% endif %}
-    <span class="text-slate-500">p. {{ page.page_number }} / {{ mag.page_count }}</span>
-    {% if has_next %}
-    <a href="/magazine/{{ mag.id }}/page/{{ page.page_number + 1 }}{% if q %}?q={{ q|urlencode }}{% endif %}"
-       class="text-slate-600 hover:underline">Next</a>
+
+{# ─────────────────────── page chrome ─────────────────────── #}
+<section class="grid grid-cols-12 gap-x-6 items-end pb-6">
+  <div class="col-span-12 md:col-span-5">
+    <div class="caps caps-soft mb-1">
+      <a href="/magazine/{{ mag.id }}{% if q %}?q={{ q|urlencode }}{% endif %}"
+         class="hover:text-[var(--accent)]">← {{ mag.title }}</a>
+    </div>
+    {% if mag.publication_date or mag.issue %}
+    <div class="italic text-[var(--ink-soft)] text-sm">
+      {% if mag.publication_date %}{{ mag.publication_date.strftime('%B %Y') }}{% endif %}
+      {% if mag.issue %}<span class="ornament">·</span> № {{ mag.issue }}{% endif %}
+    </div>
     {% endif %}
   </div>
-</div>
+
+  <div class="col-span-12 md:col-span-3 md:text-center mt-4 md:mt-0">
+    <div class="display text-2xl">
+      <span class="accent">p. {{ page.page_number }}</span>
+      <span class="text-[var(--ink-soft)]">/ {{ mag.page_count }}</span>
+    </div>
+  </div>
+
+  <div class="col-span-12 md:col-span-4 md:text-right caps mt-2 md:mt-0">
+    {% if has_prev %}
+      <a href="/magazine/{{ mag.id }}/page/{{ page.page_number - 1 }}{% if q %}?q={{ q|urlencode }}{% endif %}"
+         class="accent mr-4">← previous</a>
+    {% endif %}
+    {% if has_next %}
+      <a href="/magazine/{{ mag.id }}/page/{{ page.page_number + 1 }}{% if q %}?q={{ q|urlencode }}{% endif %}"
+         class="accent">next →</a>
+    {% endif %}
+  </div>
+</section>
+
+<div class="rule"></div>
+
 {% if q %}
-<div class="mb-2 text-sm">
-  <a href="/search?q={{ q|urlencode }}" class="text-blue-700 underline">
-    ← Back to results for "{{ q }}"
+<div class="py-3 caps caps-soft">
+  <a href="/search?q={{ q|urlencode }}" class="hover:text-[var(--accent)]">
+    ← back to results for <span class="lowercase tracking-normal italic font-serif">“{{ q }}”</span>
   </a>
 </div>
+<div class="rule-hair"></div>
 {% endif %}
-<img src="/bundle/{{ page.image_path }}" alt="" class="w-full shadow border">
+
+{# ─────────────────────── page image ─────────────────────── #}
+<figure class="py-10">
+  <div class="cover-frame inline-block w-full">
+    <img src="/bundle/{{ page.image_path }}" alt="page {{ page.page_number }}">
+  </div>
+</figure>
+
+<div class="rule"></div>
+
+{# ─────────────────────── footer nav ─────────────────────── #}
+<nav class="py-6 flex items-baseline justify-between caps">
+  <div>
+    {% if has_prev %}
+      <a href="/magazine/{{ mag.id }}/page/{{ page.page_number - 1 }}{% if q %}?q={{ q|urlencode }}{% endif %}"
+         class="accent">← previous</a>
+    {% endif %}
+  </div>
+  <a href="/magazine/{{ mag.id }}{% if q %}?q={{ q|urlencode }}{% endif %}"
+     class="caps-soft hover:text-[var(--accent)]">all pages</a>
+  <div>
+    {% if has_next %}
+      <a href="/magazine/{{ mag.id }}/page/{{ page.page_number + 1 }}{% if q %}?q={{ q|urlencode }}{% endif %}"
+         class="accent">next →</a>
+    {% endif %}
+  </div>
+</nav>
+
 {% endblock %}

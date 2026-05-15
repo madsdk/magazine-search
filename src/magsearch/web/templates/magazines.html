@@ -1,31 +1,65 @@
 {% extends "base.html" %}
-{% block title %}Browse magazines{% endblock %}
+{% block title %}Browse the archive{% endblock %}
 {% block content %}
-<div class="flex items-baseline justify-between mb-4">
-  <h1 class="text-xl font-bold">All magazines</h1>
-  {% if publishers %}
-  <form method="get" class="text-sm">
-    <label>Publisher:</label>
-    <select name="publisher" onchange="this.form.submit()" class="border rounded p-1">
-      <option value="">All</option>
-      {% for p in publishers %}
-      <option value="{{ p }}" {% if p == active %}selected{% endif %}>{{ p }}</option>
-      {% endfor %}
-    </select>
-  </form>
-  {% endif %}
-</div>
 
-<ul class="grid grid-cols-3 gap-4">
-  {% for m in titles %}
-  <li class="bg-white rounded shadow p-2">
-    <a href="/magazines/{{ m.title|urlencode }}">
-      <img src="/bundle/{{ m.cover_path }}" alt="" class="w-full aspect-[3/4] object-cover">
-      <div class="mt-2 font-semibold">{{ m.title }}</div>
-      <div class="text-xs text-slate-500">{{ m.issue_count }} issue{% if m.issue_count != 1 %}s{% endif %}</div>
-      {% if m.publisher %}<div class="text-xs text-slate-400">{{ m.publisher }}</div>{% endif %}
-    </a>
-  </li>
+{# ─────────────────────── header ─────────────────────── #}
+<section class="grid grid-cols-12 gap-x-8 gap-y-6 pb-8 items-end">
+  <div class="col-span-12 md:col-span-8">
+    <div class="caps caps-soft mb-3">The catalogue</div>
+    <h1 class="display" style="font-size: clamp(3rem, 9vw, 7rem);">
+      <span class="display-italic">Browse</span> the archive
+    </h1>
+  </div>
+  <div class="col-span-12 md:col-span-4 md:text-right caps caps-soft">
+    {{ titles|length }} title{% if titles|length != 1 %}s{% endif %}
+  </div>
+</section>
+
+{% if publishers %}
+<div class="rule"></div>
+<section class="py-5 flex items-baseline gap-3 flex-wrap">
+  <span class="caps caps-soft mr-2">Filter by publisher</span>
+  <a href="/magazines" class="tag {% if not active %}tag-active{% endif %}">all</a>
+  {% for p in publishers %}
+    <a href="/magazines?publisher={{ p|urlencode }}"
+       class="tag {% if active == p %}tag-active{% endif %}">{{ p }}</a>
   {% endfor %}
-</ul>
+</section>
+{% endif %}
+
+<div class="rule-thick"></div>
+
+{# ─────────────────────── titles grid ─────────────────────── #}
+<section class="py-12">
+  {% if titles %}
+  <ul class="grid grid-cols-2 sm:grid-cols-3 gap-x-10 gap-y-14">
+    {% for t in titles %}
+    <li>
+      <a href="/magazines/{{ t.title|urlencode }}" class="group block">
+        <div class="cover-frame aspect-[3/4]">
+          <img src="/bundle/{{ t.cover_path }}" alt="">
+        </div>
+        <div class="display text-3xl mt-4 leading-tight group-hover:text-[var(--accent)] transition-colors">
+          {{ t.title }}
+        </div>
+        <div class="caps caps-soft mt-2 flex items-baseline gap-2">
+          <span class="accent">{{ t.issue_count }}</span>
+          <span>issue{% if t.issue_count != 1 %}s{% endif %}</span>
+          {% if t.publisher %}
+            <span class="ornament">·</span>
+            <span>{{ t.publisher }}</span>
+          {% endif %}
+        </div>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="py-16 text-center">
+    <div class="ornament text-4xl">¶</div>
+    <p class="display italic text-2xl mt-3">Nothing here yet.</p>
+  </div>
+  {% endif %}
+</section>
+
 {% endblock %}

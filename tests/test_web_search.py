@@ -40,7 +40,8 @@ def test_search_default_view_is_grouped(app_client):
     # Magazine row links to the issue page with q preserved.
     assert "/magazine/byte-1985-12?q=synthesizer" in resp.text
     # Toggle to flat view is offered.
-    assert "Show all matching pages" in resp.text
+    assert "view=flat" in resp.text
+    assert "matching pages" in resp.text
 
 
 def test_search_flat_view_links_back_to_grouped(app_client):
@@ -48,7 +49,8 @@ def test_search_flat_view_links_back_to_grouped(app_client):
     resp = client.get("/search", params={"q": "synthesizer", "view": "flat"})
     assert resp.status_code == 200
     assert "<mark>" in resp.text
-    assert "Back to grouped view" in resp.text
+    # Back link returns to grouped view (no view=flat).
+    assert 'href="/search?q=synthesizer"' in resp.text
 
 
 def test_magazine_search_form_present(app_client):
@@ -67,14 +69,16 @@ def test_magazine_search_replaces_page_grid(app_client):
     client, _ = app_client
     resp = client.get("/magazine/byte-1985-12", params={"q": "synthesizer"})
     assert resp.status_code == 200
-    # Results section shown; page grid header is gone.
-    assert "Results in this issue" in resp.text
+    # Results section is shown.
+    assert "in this issue" in resp.text
     assert "<mark>" in resp.text
-    assert ">Pages<" not in resp.text
     # Snippet links pass q through to the page view.
     assert "/magazine/byte-1985-12/page/1?q=synthesizer" in resp.text
     # "Back to all pages" link drops q.
     assert 'href="/magazine/byte-1985-12"' in resp.text
+    # Page 2 doesn't match "synthesizer", so if the grid were rendered we'd
+    # still see a link to it; in results-only mode it should be absent.
+    assert "/magazine/byte-1985-12/page/2" not in resp.text
 
 
 def test_magazine_search_no_results_message(app_client):

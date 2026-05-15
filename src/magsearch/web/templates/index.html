@@ -1,20 +1,121 @@
 {% extends "base.html" %}
+{% block title %}The Archive — a periodical index{% endblock %}
 {% block content %}
-<h1 class="text-2xl font-bold mb-4">Magazine Search</h1>
-<p class="text-slate-600 mb-6">Search the full text of your archive of scanned magazines.</p>
 
+{# ───────────────────────────── masthead ──────────────────────────────── #}
+<section class="grid grid-cols-12 gap-x-8 gap-y-6 pb-10 items-end">
+  <div class="col-span-12 md:col-span-8">
+    <div class="caps caps-soft mb-4 flex items-baseline gap-3">
+      <span>No. 01</span>
+      <span class="ornament">·</span>
+      <span>vol. i</span>
+      <span class="ornament">·</span>
+      <span>weekly-ish</span>
+    </div>
+    <h1 class="display" style="font-size: clamp(4.5rem, 13vw, 11rem);">
+      The<br>
+      <span class="display-italic accent">Archive</span>
+    </h1>
+  </div>
+
+  <aside class="col-span-12 md:col-span-4 md:pl-6 md:border-l-2 md:border-[var(--accent)]">
+    <p class="font-serif italic text-xl leading-snug text-[var(--ink)]">
+      An open index of vintage computer &amp; games
+      periodicals — scanned, read by machine, &amp; made
+      searchable down to the page.
+    </p>
+    <div class="mt-5 caps caps-soft flex items-baseline gap-3">
+      <span class="display text-3xl text-[var(--ink)]" style="font-variation-settings:'opsz' 60;">{{ "{:,}".format(total_pages) }}</span>
+      <span>pages</span>
+      <span class="ornament">·</span>
+      <span class="display text-3xl text-[var(--ink)]" style="font-variation-settings:'opsz' 60;">{{ total_issues }}</span>
+      <span>issues</span>
+    </div>
+  </aside>
+</section>
+
+<div class="rule-thick"></div>
+
+{# ───────────────────────────── search ──────────────────────────────── #}
+<section class="py-10 grid grid-cols-12 gap-x-8 items-end">
+  <div class="col-span-12 md:col-span-2 caps caps-soft pb-3">
+    Find a&nbsp;phrase
+  </div>
+  <form action="/search" method="get" class="col-span-12 md:col-span-10 flex items-end gap-4">
+    <input type="text" name="q"
+           placeholder="a name, a title, a turn of phrase…"
+           class="field-editorial flex-1"
+           autocomplete="off">
+    <button class="caps accent pb-3 hover:underline">search&nbsp;→</button>
+  </form>
+</section>
+
+<div class="rule-hair"></div>
+
+<section class="pt-4 pb-12 grid grid-cols-12 gap-x-8">
+  <div class="col-span-12 md:col-span-2"></div>
+  <p class="col-span-12 md:col-span-10 italic text-[var(--ink-soft)] text-sm">
+    Tip — wrap a phrase in quotes for an exact match,
+    e.g.&nbsp;<span class="not-italic font-serif">"vintage synthesizer"</span>.
+  </p>
+</section>
+
+<div class="rule-thick"></div>
+
+{# ─────────────────────── recently filed grid ──────────────────────── #}
 {% if recent %}
-<h2 class="text-lg font-semibold mb-2">Recently ingested</h2>
-<ul class="grid grid-cols-3 gap-4">
-  {% for m in recent %}
-  <li class="bg-white rounded shadow p-2">
-    <a href="/magazine/{{ m.id }}">
-      <img src="/bundle/{{ m.cover_path }}" alt="" class="w-full aspect-[3/4] object-cover">
-      <div class="mt-2 text-sm font-semibold">{{ m.title }}</div>
-      {% if m.issue %}<div class="text-xs text-slate-500">{{ m.issue }}</div>{% endif %}
-    </a>
-  </li>
-  {% endfor %}
-</ul>
+<section class="py-12">
+  <div class="flex items-baseline gap-4 mb-10">
+    <h2 class="display text-4xl">Recently <span class="display-italic">filed</span></h2>
+    <span class="caps caps-soft hidden sm:inline">the six newest issues</span>
+    <span class="flex-1 border-b border-[var(--ink)] mx-2"></span>
+    <a href="/magazines" class="caps accent">Browse all →</a>
+  </div>
+
+  <ul class="grid grid-cols-2 sm:grid-cols-3 gap-x-10 gap-y-14">
+    {% for m in recent %}
+    <li>
+      <a href="/magazine/{{ m.id }}" class="block group">
+        <div class="cover-frame aspect-[3/4]">
+          <img src="/bundle/{{ m.cover_path }}" alt="">
+        </div>
+        <div class="mt-4 caps caps-soft flex items-baseline gap-2">
+          {% if m.publication_date %}
+            <span>{{ m.publication_date.strftime('%b %Y') }}</span>
+          {% endif %}
+          {% if m.issue %}
+            <span class="ornament">·</span>
+            <span class="accent">№ {{ m.issue }}</span>
+          {% endif %}
+        </div>
+        <div class="display text-2xl mt-1 leading-tight group-hover:text-[var(--accent)] transition-colors">
+          {{ m.title }}
+        </div>
+        {% if m.publisher %}
+          <div class="italic text-sm text-[var(--ink-soft)] mt-1">{{ m.publisher }}</div>
+        {% endif %}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<div class="rule"></div>
 {% endif %}
+
+{# ───────────────────────────── colophon ──────────────────────────── #}
+<section class="py-14 grid grid-cols-12 gap-x-8">
+  <div class="col-span-12 md:col-span-3">
+    <div class="caps caps-soft mb-3">Colophon</div>
+    <div class="ornament text-4xl leading-none">§</div>
+  </div>
+  <div class="col-span-12 md:col-span-9 dropcap text-lg leading-relaxed max-w-[58ch]">
+    An archive of scanned magazines, OCR'd page by page and made full-text
+    searchable. The aim is to keep the periodical press — that strange,
+    perishable thing — within easy reach of anyone curious enough to look.
+    Set in <em>Fraunces</em> &amp; <em>Newsreader</em>; printed on a slab
+    of warm paper.
+  </div>
+</section>
+
 {% endblock %}

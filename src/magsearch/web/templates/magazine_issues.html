@@ -1,24 +1,51 @@
 {% extends "base.html" %}
-{% block title %}{{ title }}{% endblock %}
+{% block title %}{{ title }} — all issues{% endblock %}
 {% block content %}
-<div class="mb-4">
-  <a href="/magazines" class="text-sm text-slate-600 hover:underline">← All magazines</a>
-  <h1 class="text-xl font-bold mt-1">{{ title }}</h1>
-  <p class="text-slate-500 text-sm">{{ issues|length }} issue{% if issues|length != 1 %}s{% endif %}</p>
-</div>
 
-<ul class="grid grid-cols-3 gap-4">
-  {% for m in issues %}
-  <li class="bg-white rounded shadow p-2">
-    <a href="/magazine/{{ m.id }}">
-      <img src="/bundle/{{ m.cover_path }}" alt="" class="w-full aspect-[3/4] object-cover">
-      <div class="mt-2 font-semibold">
-        {% if m.issue %}#{{ m.issue }}{% else %}{{ m.title }}{% endif %}
-      </div>
-      {% if m.publication_date %}<div class="text-xs text-slate-500">{{ m.publication_date.strftime('%b %Y') }}</div>{% endif %}
-      {% if m.publisher %}<div class="text-xs text-slate-400">{{ m.publisher }}</div>{% endif %}
-    </a>
-  </li>
-  {% endfor %}
-</ul>
+{# ─────────────────────── header ─────────────────────── #}
+<section class="grid grid-cols-12 gap-x-8 gap-y-4 pb-8 items-end">
+  <div class="col-span-12 md:col-span-9">
+    <div class="caps caps-soft mb-3">
+      <a href="/magazines" class="hover:text-[var(--accent)]">← All magazines</a>
+    </div>
+    <h1 class="display" style="font-size: clamp(3rem, 10vw, 8rem);">
+      {{ title }}
+    </h1>
+  </div>
+  <div class="col-span-12 md:col-span-3 md:text-right caps caps-soft">
+    <span class="accent display text-3xl" style="font-variation-settings:'opsz' 60;">{{ issues|length }}</span>
+    <span>issue{% if issues|length != 1 %}s{% endif %} on file</span>
+  </div>
+</section>
+
+<div class="rule-thick"></div>
+
+{# ─────────────────────── issues grid ─────────────────────── #}
+<section class="py-12">
+  <ul class="grid grid-cols-2 sm:grid-cols-3 gap-x-10 gap-y-14">
+    {% for m in issues %}
+    <li>
+      <a href="/magazine/{{ m.id }}" class="group block">
+        <div class="cover-frame aspect-[3/4]">
+          <img src="/bundle/{{ m.cover_path }}" alt="">
+        </div>
+        <div class="caps caps-soft mt-3 flex items-baseline gap-2">
+          {% if m.publication_date %}<span>{{ m.publication_date.strftime('%b %Y') }}</span>{% endif %}
+          {% if m.issue %}
+            <span class="ornament">·</span>
+            <span class="accent">№ {{ m.issue }}</span>
+          {% endif %}
+        </div>
+        <div class="display-italic text-2xl mt-1 leading-tight group-hover:text-[var(--accent)] transition-colors">
+          {% if m.issue %}Issue {{ m.issue }}{% else %}{{ m.title }}{% endif %}
+        </div>
+        {% if m.publisher %}
+          <div class="italic text-sm text-[var(--ink-soft)] mt-1">{{ m.publisher }}</div>
+        {% endif %}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
 {% endblock %}

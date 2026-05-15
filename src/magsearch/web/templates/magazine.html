@@ -1,76 +1,148 @@
 {% extends "base.html" %}
-{% block title %}{{ mag.title }}{% endblock %}
+{% block title %}{{ mag.title }}{% if mag.publication_date %} · {{ mag.publication_date.strftime('%b %Y') }}{% endif %}{% endblock %}
 {% block content %}
-<div class="flex gap-6 mb-6">
-  <img src="/bundle/{{ mag.cover_path }}" alt="" class="w-48 aspect-[3/4] object-cover shadow">
-  <div class="flex-1">
-    <h1 class="text-2xl font-bold">{{ mag.title }}</h1>
-    {% if mag.issue %}<div class="text-slate-600">{{ mag.issue }}</div>{% endif %}
-    {% if mag.publisher %}<div class="text-slate-500">{{ mag.publisher }}</div>{% endif %}
-    {% if mag.publication_date %}<div class="text-slate-500">{{ mag.publication_date }}</div>{% endif %}
-    <div class="text-slate-500 mt-2">{{ mag.page_count }} pages · {{ mag.original_format|upper }}</div>
-    <a href="/bundle/{{ mag.id }}/original.{{ mag.original_format }}"
-       class="inline-block mt-3 text-blue-700 underline">Download original</a>
 
-    <form action="/magazine/{{ mag.id }}" method="get" class="mt-4 flex gap-2">
-      <input type="text" name="q" value="{{ q | default('', true) }}"
-             placeholder="Search this issue…"
-             class="border border-slate-300 rounded px-3 py-1 w-72">
-      <button class="bg-slate-900 text-white rounded px-3 py-1">Search</button>
+{# ─────────────────────── issue masthead ─────────────────────── #}
+<section class="grid grid-cols-12 gap-x-8 gap-y-6 pb-8 items-start">
+  <div class="col-span-12 md:col-span-4">
+    <div class="cover-frame aspect-[3/4]">
+      <img src="/bundle/{{ mag.cover_path }}" alt="">
+    </div>
+  </div>
+
+  <div class="col-span-12 md:col-span-8">
+    <div class="caps caps-soft flex items-baseline gap-3 flex-wrap mb-3">
+      {% if mag.publication_date %}<span>{{ mag.publication_date.strftime('%B %Y') }}</span>{% endif %}
+      {% if mag.issue %}
+        <span class="ornament">·</span>
+        <span class="accent">№ {{ mag.issue }}</span>
+      {% endif %}
+    </div>
+
+    <h1 class="display" style="font-size: clamp(2.6rem, 7vw, 5.5rem);">
+      {{ mag.title }}
+    </h1>
+
+    {% if mag.publisher %}
+      <div class="display-italic text-xl mt-2 text-[var(--ink-soft)]">{{ mag.publisher }}</div>
+    {% endif %}
+
+    <div class="rule mt-6 pt-4 caps caps-soft flex items-baseline gap-4 flex-wrap">
+      <span>{{ mag.page_count }} pages</span>
+      <span class="ornament">·</span>
+      <span>{{ mag.original_format|upper }}</span>
+      <span class="ornament">·</span>
+      <a class="accent" href="/bundle/{{ mag.id }}/original.{{ mag.original_format }}">
+        download original ↓
+      </a>
+    </div>
+
+    <form action="/magazine/{{ mag.id }}" method="get"
+          class="mt-6 flex items-end gap-4 max-w-xl">
+      <div class="flex-1">
+        <div class="caps caps-soft mb-1">Search this issue</div>
+        <input type="text" name="q" value="{{ q | default('', true) }}"
+               placeholder="a phrase, a word…"
+               class="field-small w-full"
+               autocomplete="off">
+      </div>
+      <button class="btn-editorial">find</button>
     </form>
   </div>
-</div>
+</section>
 
+<div class="rule-thick"></div>
+
+{# ─────────────────────── pages / in-issue results ─────────────────────── #}
 {% if results is none %}
-<h2 class="text-lg font-semibold mb-3">Pages</h2>
-<ul class="grid grid-cols-6 gap-3">
-  {% for p in pages %}
-  <li>
-    <a href="/magazine/{{ mag.id }}/page/{{ p.page_number }}" class="block">
-      <img src="/bundle/{{ p.thumb_path }}" alt=""
-           class="w-full aspect-[3/4] object-cover border">
-      <div class="text-xs text-slate-500 text-center mt-1">p. {{ p.page_number }}</div>
-    </a>
-  </li>
-  {% endfor %}
-</ul>
-{% else %}
-<div class="flex items-center justify-between mb-3">
-  <h2 class="text-lg font-semibold">Results in this issue for "{{ q }}"</h2>
-  <a href="/magazine/{{ mag.id }}" class="text-sm text-blue-700 hover:underline">← Back to all pages</a>
-</div>
 
-{% if results %}
-<ul class="space-y-3">
-  {% for r in results %}
-  <li class="flex gap-4 bg-white rounded shadow p-3">
-    <a href="/magazine/{{ mag.id }}/page/{{ r.page_number }}?q={{ q|urlencode }}">
-      <img src="/bundle/{{ r.thumb_path }}" alt=""
-           class="w-24 h-32 object-cover border border-slate-200">
-    </a>
-    <div class="flex-1">
-      <div class="font-semibold">
-        <a href="/magazine/{{ mag.id }}/page/{{ r.page_number }}?q={{ q|urlencode }}"
-           class="hover:underline">Page {{ r.page_number }}</a>
-      </div>
-      <div class="text-sm text-slate-700 mt-1">{{ r.snippet|safe }}</div>
+<section class="py-10">
+  <div class="flex items-baseline gap-4 mb-8">
+    <h2 class="display text-3xl">All <span class="display-italic">pages</span></h2>
+    <span class="caps caps-soft hidden sm:inline">{{ pages|length }} in this issue</span>
+    <span class="flex-1 border-b border-[var(--ink)] mx-2"></span>
+  </div>
+
+  <ul class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-x-5 gap-y-8">
+    {% for p in pages %}
+    <li>
+      <a href="/magazine/{{ mag.id }}/page/{{ p.page_number }}" class="block group">
+        <div class="cover-frame aspect-[3/4]">
+          <img src="/bundle/{{ p.thumb_path }}" alt="">
+        </div>
+        <div class="caps caps-soft mt-2 text-center group-hover:text-[var(--accent)] transition-colors">
+          p. {{ p.page_number }}
+        </div>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+{% else %}
+
+<section class="py-10">
+  <div class="flex items-baseline gap-4 mb-8 flex-wrap">
+    <h2 class="display text-3xl">
+      Found <span class="display-italic">in this issue</span>
+    </h2>
+    {% if results %}
+      <span class="caps caps-soft">for “{{ q }}”</span>
+    {% endif %}
+    <span class="flex-1 border-b border-[var(--ink)] mx-2 hidden sm:inline-block"></span>
+    <a href="/magazine/{{ mag.id }}" class="caps accent">← back to all pages</a>
+  </div>
+
+  {% if results %}
+  <ul>
+    {% for r in results %}
+    <li>
+      <a href="/magazine/{{ mag.id }}/page/{{ r.page_number }}?q={{ q|urlencode }}"
+         class="group grid grid-cols-12 gap-x-6 items-start py-6 border-b border-[var(--ink)]">
+        <div class="col-span-3 sm:col-span-2">
+          <div class="cover-frame aspect-[3/4]">
+            <img src="/bundle/{{ r.thumb_path }}" alt="">
+          </div>
+        </div>
+        <div class="col-span-9 sm:col-span-10">
+          <div class="caps caps-soft">
+            <span class="accent">p. {{ r.page_number }}</span>
+          </div>
+          <p class="mt-2 font-serif text-lg leading-snug max-w-[64ch]">
+            {{ r.snippet|safe }}
+          </p>
+        </div>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <nav class="mt-10 flex items-baseline justify-between caps">
+    <div>
+      {% if page > 1 %}
+        <a class="accent"
+           href="/magazine/{{ mag.id }}?q={{ q|urlencode }}&page={{ page - 1 }}">← previous</a>
+      {% endif %}
     </div>
-  </li>
-  {% endfor %}
-</ul>
+    <div class="caps-soft">page {{ page }}</div>
+    <div>
+      {% if has_more %}
+        <a class="accent"
+           href="/magazine/{{ mag.id }}?q={{ q|urlencode }}&page={{ page + 1 }}">next →</a>
+      {% endif %}
+    </div>
+  </nav>
+  {% else %}
+  <div class="py-16 text-center">
+    <div class="ornament text-4xl">¶</div>
+    <p class="display italic text-2xl mt-3">No matches in this issue.</p>
+    <p class="italic text-[var(--ink-soft)] mt-2">
+      Try the <a href="/search?q={{ q|urlencode }}" class="accent underline-offset-2 hover:underline">whole archive</a>.
+    </p>
+  </div>
+  {% endif %}
+</section>
 
-<div class="mt-6 flex gap-3">
-  {% if page > 1 %}
-    <a class="text-slate-600 hover:underline"
-       href="/magazine/{{ mag.id }}?q={{ q|urlencode }}&page={{ page - 1 }}">← Previous</a>
-  {% endif %}
-  {% if has_more %}
-    <a class="text-slate-600 hover:underline"
-       href="/magazine/{{ mag.id }}?q={{ q|urlencode }}&page={{ page + 1 }}">Next →</a>
-  {% endif %}
-</div>
-{% else %}
-<p class="text-slate-500">No matches in this issue.</p>
 {% endif %}
-{% endif %}
+
 {% endblock %}

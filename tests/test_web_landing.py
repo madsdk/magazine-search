@@ -23,4 +23,4 @@ def test_landing_renders_search_form(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert '<form' in resp.text and 'name="q"' in resp.text
-    assert "Magazine Search" in resp.text
+    assert "The Archive" in resp.text

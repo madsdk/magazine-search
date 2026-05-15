@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from magsearch.models import Magazine
@@ -24,7 +24,19 @@ def landing(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     recent = db.scalars(
         select(Magazine).order_by(Magazine.ingested_at.desc()).limit(6)
     ).all()
-    return _TEMPLATES.TemplateResponse(request, "index.html", {"recent": recent})
+    total_issues = db.scalar(select(func.count(Magazine.id))) or 0
+    total_pages = db.scalar(
+        select(func.coalesce(func.sum(Magazine.page_count), 0))
+    ) or 0
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "index.html",
+        {
+            "recent": recent,
+            "total_issues": total_issues,
+            "total_pages": total_pages,
+        },
+    )
 
 
 @router.get("/search", response_class=HTMLResponse)
