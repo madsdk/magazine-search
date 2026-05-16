@@ -18,9 +18,24 @@
   </div>
 </section>
 
-<div class="rule-thick"></div>
+{# ─────────────────────── search this title ─────────────────────── #}
+<form action="/magazines/{{ title|urlencode }}" method="get"
+      class="mt-2 flex items-end gap-4 max-w-xl">
+  <div class="flex-1">
+    <div class="caps caps-soft mb-1">Search within {{ title }}</div>
+    <input type="text" name="q" value="{{ q | default('', true) }}"
+           placeholder="a phrase, a word…"
+           class="field-small w-full"
+           autocomplete="off">
+  </div>
+  <button class="btn-editorial">find</button>
+</form>
 
-{# ─────────────────────── issues grid ─────────────────────── #}
+<div class="rule-thick mt-8"></div>
+
+{# ─────────────────────── issues grid OR results ─────────────────────── #}
+{% if results is none %}
+
 <section class="py-12">
   <ul class="grid grid-cols-2 sm:grid-cols-3 gap-x-10 gap-y-14">
     {% for m in issues %}
@@ -47,5 +62,77 @@
     {% endfor %}
   </ul>
 </section>
+
+{% else %}
+
+<section class="py-10">
+  <div class="flex items-baseline gap-4 mb-8 flex-wrap">
+    <h2 class="display text-3xl">
+      Found <span class="display-italic">in {{ title }}</span>
+    </h2>
+    {% if results %}
+      <span class="caps caps-soft">for “{{ q }}”</span>
+    {% endif %}
+    <span class="flex-1 border-b border-[var(--ink)] mx-2 hidden sm:inline-block"></span>
+    <a href="/magazines/{{ title|urlencode }}" class="caps accent">← back to all issues</a>
+  </div>
+
+  {% if results %}
+  <ul>
+    {% for r in results %}
+    <li>
+      <a href="/magazine/{{ r.magazine_id }}/page/{{ r.page_number }}?q={{ q|urlencode }}"
+         class="group grid grid-cols-12 gap-x-6 items-start py-6 border-b border-[var(--ink)]">
+        <div class="col-span-3 sm:col-span-2">
+          <div class="cover-frame aspect-[3/4]">
+            <img src="/bundle/{{ r.thumb_path }}" alt="">
+          </div>
+        </div>
+        <div class="col-span-9 sm:col-span-10">
+          <div class="caps caps-soft flex items-baseline gap-2 flex-wrap">
+            {% if r.magazine_date %}<span>{{ r.magazine_date.strftime('%b %Y') }}</span>{% endif %}
+            {% if r.magazine_issue %}
+              <span class="ornament">·</span>
+              <span>№ {{ r.magazine_issue }}</span>
+            {% endif %}
+            <span class="ornament">·</span>
+            <span class="accent">p. {{ r.page_number }}</span>
+          </div>
+          <p class="mt-2 font-serif text-lg leading-snug max-w-[64ch]">
+            {{ r.snippet|safe }}
+          </p>
+        </div>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <nav class="mt-10 flex items-baseline justify-between caps">
+    <div>
+      {% if page > 1 %}
+        <a class="accent"
+           href="/magazines/{{ title|urlencode }}?q={{ q|urlencode }}&page={{ page - 1 }}">← previous</a>
+      {% endif %}
+    </div>
+    <div class="caps-soft">page {{ page }}</div>
+    <div>
+      {% if has_more %}
+        <a class="accent"
+           href="/magazines/{{ title|urlencode }}?q={{ q|urlencode }}&page={{ page + 1 }}">next →</a>
+      {% endif %}
+    </div>
+  </nav>
+  {% else %}
+  <div class="py-16 text-center">
+    <div class="ornament text-4xl">¶</div>
+    <p class="display italic text-2xl mt-3">No matches in {{ title }}.</p>
+    <p class="italic text-[var(--ink-soft)] mt-2">
+      Try the <a href="/search?q={{ q|urlencode }}" class="accent underline-offset-2 hover:underline">whole archive</a>.
+    </p>
+  </div>
+  {% endif %}
+</section>
+
+{% endif %}
 
 {% endblock %}

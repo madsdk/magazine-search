@@ -11,7 +11,12 @@ from magsearch.models import Magazine
 from magsearch.models import Page as PageModel
 from magsearch.settings import Settings, get_settings
 from magsearch.web.deps import get_db
-from magsearch.web.search import search, search_in_magazine, search_magazines
+from magsearch.web.search import (
+    search,
+    search_in_magazine,
+    search_in_magazine_title,
+    search_magazines,
+)
 
 router = APIRouter()
 _TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -105,6 +110,8 @@ def magazines_index(
 def magazine_issues(
     request: Request,
     title: str,
+    q: str = Query(default=""),
+    page: int = Query(default=1, ge=1),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     issues = db.scalars(
@@ -114,10 +121,26 @@ def magazine_issues(
     ).all()
     if not issues:
         raise HTTPException(status_code=404, detail="magazine not found")
+    results: list | None = None
+    has_more = False
+    if q.strip():
+        offset = (page - 1) * _PAGE_SIZE
+        hits = search_in_magazine_title(
+            db, q, title, offset=offset, limit=_PAGE_SIZE + 1
+        )
+        has_more = len(hits) > _PAGE_SIZE
+        results = hits[:_PAGE_SIZE]
     return _TEMPLATES.TemplateResponse(
         request,
         "magazine_issues.html",
-        {"title": title, "issues": issues},
+        {
+            "title": title,
+            "issues": issues,
+            "q": q,
+            "results": results,
+            "page": page,
+            "has_more": has_more,
+        },
     )
 
 

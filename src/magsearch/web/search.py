@@ -98,6 +98,26 @@ _SEARCH_IN_MAGAZINE_SQL = text("""
 )
 
 
+_SEARCH_IN_MAGAZINE_TITLE_SQL = text("""
+    SELECT
+        magazines.id               AS magazine_id,
+        magazines.title            AS magazine_title,
+        magazines.issue            AS magazine_issue,
+        magazines.publication_date AS magazine_date,
+        pages.page_number          AS page_number,
+        pages.thumb_path           AS thumb_path,
+        snippet(pages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
+    FROM pages_fts
+    JOIN pages     ON pages_fts.rowid = pages.id
+    JOIN magazines ON pages.magazine_id = magazines.id
+    WHERE pages_fts MATCH :q AND magazines.title = :title
+    ORDER BY rank, magazines.publication_date, pages.page_number
+    LIMIT :limit OFFSET :offset
+""").bindparams(
+    bindparam("q"), bindparam("title"), bindparam("limit"), bindparam("offset")
+)
+
+
 _SEARCH_MAGAZINES_SQL = text("""
     SELECT
         magazines.id               AS magazine_id,
@@ -163,6 +183,27 @@ def search_in_magazine(
         rows = session.execute(
             _SEARCH_IN_MAGAZINE_SQL,
             {"q": q, "magazine_id": magazine_id, "limit": limit, "offset": offset},
+        ).all()
+    except Exception:
+        return []
+    return [_row_to_result(r) for r in rows]
+
+
+def search_in_magazine_title(
+    session: Session,
+    raw_query: str,
+    title: str,
+    *,
+    offset: int,
+    limit: int,
+) -> list[SearchResult]:
+    q = sanitize_query(raw_query)
+    if not q:
+        return []
+    try:
+        rows = session.execute(
+            _SEARCH_IN_MAGAZINE_TITLE_SQL,
+            {"q": q, "title": title, "limit": limit, "offset": offset},
         ).all()
     except Exception:
         return []
