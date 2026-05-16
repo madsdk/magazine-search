@@ -3,8 +3,10 @@
 {% block content %}
 
 {# Build a search URL with the current params, overriding individually. #}
-{%- macro search_url(view_=None, sort_=None, per_page_=None, page_=1) -%}
-/search?q={{ q|urlencode }}&view={{ view_ or view }}&sort={{ sort_ or sort }}&per_page={{ per_page_ or per_page }}&page={{ page_ }}
+{%- macro search_url(view_=None, sort_=None, per_page_=None, page_=1, match_all_=None, match_phrase_=None) -%}
+{%- set ma = match_all_ if match_all_ is not none else (1 if match_all else 0) -%}
+{%- set mp = match_phrase_ if match_phrase_ is not none else (1 if match_phrase else 0) -%}
+/search?q={{ q|urlencode }}&view={{ view_ or view }}&sort={{ sort_ or sort }}&per_page={{ per_page_ or per_page }}&match_all={{ ma }}&match_phrase={{ mp }}&page={{ page_ }}
 {%- endmacro -%}
 
 {# ─────────────────────── header ─────────────────────── #}
@@ -59,6 +61,32 @@
       {% endif %}
       {% if not loop.last %}<span class="ornament caps-soft">·</span>{% endif %}
     {% endfor %}
+
+    <span class="caps-soft mx-2">|</span>
+
+    <div class="caps-soft">match</div>
+    {% if match_all %}
+      <span>all terms</span>
+      <span class="ornament caps-soft">·</span>
+      <a class="accent" href="{{ search_url(match_all_=0) }}">any term</a>
+    {% else %}
+      <a class="accent" href="{{ search_url(match_all_=1) }}">all terms</a>
+      <span class="ornament caps-soft">·</span>
+      <span>any term</span>
+    {% endif %}
+
+    <span class="caps-soft mx-2">|</span>
+
+    <div class="caps-soft">order</div>
+    {% if match_phrase %}
+      <a class="accent" href="{{ search_url(match_phrase_=0) }}">any</a>
+      <span class="ornament caps-soft">·</span>
+      <span>in sequence</span>
+    {% else %}
+      <span>any</span>
+      <span class="ornament caps-soft">·</span>
+      <a class="accent" href="{{ search_url(match_phrase_=1) }}">in sequence</a>
+    {% endif %}
   </div>
 
   {# ─────────────────────── grouped view ─────────────────────── #}
@@ -66,7 +94,7 @@
   <ul>
     {% for r in results %}
     <li>
-      <a href="/magazine/{{ r.magazine_id }}?q={{ q|urlencode }}"
+      <a href="/magazine/{{ r.magazine_id }}?q={{ q|urlencode }}&match_all={{ 1 if match_all else 0 }}&match_phrase={{ 1 if match_phrase else 0 }}"
          class="group grid grid-cols-12 gap-x-6 items-center py-6 border-b border-[var(--ink)]">
         <div class="col-span-3 sm:col-span-2">
           <div class="cover-frame aspect-[3/4]">
@@ -101,7 +129,7 @@
   <ul>
     {% for r in results %}
     <li>
-      <a href="/magazine/{{ r.magazine_id }}/page/{{ r.page_number }}?q={{ q|urlencode }}"
+      <a href="/magazine/{{ r.magazine_id }}/page/{{ r.page_number }}?q={{ q|urlencode }}&match_all={{ 1 if match_all else 0 }}&match_phrase={{ 1 if match_phrase else 0 }}"
          class="group grid grid-cols-12 gap-x-6 items-start py-6 border-b border-[var(--ink)]">
         <div class="col-span-3 sm:col-span-2">
           <div class="cover-frame aspect-[3/4]">

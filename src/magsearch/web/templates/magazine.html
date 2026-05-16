@@ -2,8 +2,10 @@
 {% block title %}{{ mag.title }}{% if mag.publication_date %} · {{ mag.publication_date.strftime('%b %Y') }}{% endif %}{% endblock %}
 {% block content %}
 
-{%- macro issue_url(sort_=None, per_page_=None, page_=1) -%}
-/magazine/{{ mag.id }}?q={{ q|urlencode }}&sort={{ sort_ or sort }}&per_page={{ per_page_ or per_page }}&page={{ page_ }}
+{%- macro issue_url(sort_=None, per_page_=None, page_=1, match_all_=None, match_phrase_=None) -%}
+{%- set ma = match_all_ if match_all_ is not none else (1 if match_all else 0) -%}
+{%- set mp = match_phrase_ if match_phrase_ is not none else (1 if match_phrase else 0) -%}
+/magazine/{{ mag.id }}?q={{ q|urlencode }}&sort={{ sort_ or sort }}&per_page={{ per_page_ or per_page }}&match_all={{ ma }}&match_phrase={{ mp }}&page={{ page_ }}
 {%- endmacro -%}
 
 {# ─────────────────────── issue masthead ─────────────────────── #}
@@ -42,15 +44,35 @@
     </div>
 
     <form action="/magazine/{{ mag.id }}" method="get"
-          class="mt-6 flex items-end gap-4 max-w-xl">
-      <div class="flex-1">
-        <div class="caps caps-soft mb-1">Search this issue</div>
-        <input type="text" name="q" value="{{ q | default('', true) }}"
-               placeholder="a phrase, a word…"
-               class="field-small w-full"
-               autocomplete="off">
+          class="mt-6 max-w-xl">
+      <div class="flex items-end gap-4">
+        <div class="flex-1">
+          <div class="caps caps-soft mb-1">Search this issue</div>
+          <input type="text" name="q" value="{{ q | default('', true) }}"
+                 placeholder="a phrase, a word…"
+                 class="field-small w-full"
+                 autocomplete="off">
+        </div>
+        <button class="btn-editorial">find</button>
       </div>
-      <button class="btn-editorial">find</button>
+      <div class="mt-2 caps caps-soft flex flex-wrap items-center gap-x-5 gap-y-1">
+        {# Hidden 0 before the checkbox: ?match_all=0&match_all=1 when checked.
+           FastAPI takes the last value, so the checkbox state wins. #}
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="hidden" name="match_all" value="0">
+          <input type="checkbox" name="match_all" value="1"
+                 {% if match_all %}checked{% endif %}
+                 class="accent-[var(--accent)]">
+          <span>all terms</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="hidden" name="match_phrase" value="0">
+          <input type="checkbox" name="match_phrase" value="1"
+                 {% if match_phrase %}checked{% endif %}
+                 class="accent-[var(--accent)]">
+          <span>in order</span>
+        </label>
+      </div>
     </form>
   </div>
 </section>

@@ -83,20 +83,30 @@ def search_route(
     view: str = Query(default="grouped"),
     sort: str = Query(default=DEFAULT_FLAT_SORT),
     per_page: int = Query(default=DEFAULT_PER_PAGE),
+    match_all: int = Query(default=1),
+    match_phrase: int = Query(default=0),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     if view not in ("grouped", "flat"):
         view = "grouped"
     sort = _validate_sort(sort, FLAT_SORT_OPTIONS, DEFAULT_FLAT_SORT)
     per_page = _validate_per_page(per_page)
+    match_all_b = bool(match_all)
+    match_phrase_b = bool(match_phrase)
     result_cap = FLAT_RESULT_CAP if view == "flat" else GROUPED_RESULT_CAP
     page, max_page = _clamp_page(page, result_cap, per_page)
 
     offset = (page - 1) * per_page
     if view == "flat":
-        results = search(db, q, offset=offset, limit=per_page + 1, sort=sort)
+        results = search(
+            db, q, offset=offset, limit=per_page + 1, sort=sort,
+            match_all=match_all_b, match_phrase=match_phrase_b,
+        )
     else:
-        results = search_magazines(db, q, offset=offset, limit=per_page + 1, sort=sort)
+        results = search_magazines(
+            db, q, offset=offset, limit=per_page + 1, sort=sort,
+            match_all=match_all_b, match_phrase=match_phrase_b,
+        )
     has_more = len(results) > per_page and page < max_page
     results = results[:per_page]
     at_result_cap = page >= max_page and len(results) >= per_page
@@ -115,6 +125,8 @@ def search_route(
             "sort_options": FLAT_SORT_OPTIONS,
             "at_result_cap": at_result_cap,
             "result_cap": result_cap,
+            "match_all": match_all_b,
+            "match_phrase": match_phrase_b,
         },
     )
 
@@ -159,6 +171,8 @@ def magazine_issues(
     page: int = Query(default=1, ge=1),
     sort: str = Query(default=DEFAULT_FLAT_SORT),
     per_page: int = Query(default=DEFAULT_PER_PAGE),
+    match_all: int = Query(default=1),
+    match_phrase: int = Query(default=0),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     issues = db.scalars(
@@ -171,6 +185,8 @@ def magazine_issues(
 
     sort = _validate_sort(sort, FLAT_SORT_OPTIONS, DEFAULT_FLAT_SORT)
     per_page = _validate_per_page(per_page)
+    match_all_b = bool(match_all)
+    match_phrase_b = bool(match_phrase)
 
     results: list | None = None
     has_more = False
@@ -180,7 +196,8 @@ def magazine_issues(
         page, max_page = _clamp_page(page, FLAT_RESULT_CAP, per_page)
         offset = (page - 1) * per_page
         hits = search_in_magazine_title(
-            db, q, title, offset=offset, limit=per_page + 1, sort=sort
+            db, q, title, offset=offset, limit=per_page + 1, sort=sort,
+            match_all=match_all_b, match_phrase=match_phrase_b,
         )
         has_more = len(hits) > per_page and page < max_page
         results = hits[:per_page]
@@ -201,6 +218,8 @@ def magazine_issues(
             "sort_options": FLAT_SORT_OPTIONS,
             "at_result_cap": at_result_cap,
             "result_cap": FLAT_RESULT_CAP,
+            "match_all": match_all_b,
+            "match_phrase": match_phrase_b,
         },
     )
 
@@ -213,6 +232,8 @@ def magazine_detail(
     page: int = Query(default=1, ge=1),
     sort: str = Query(default=DEFAULT_PER_ISSUE_SORT),
     per_page: int = Query(default=DEFAULT_PER_PAGE),
+    match_all: int = Query(default=1),
+    match_phrase: int = Query(default=0),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     mag = db.get(Magazine, magazine_id)
@@ -221,6 +242,8 @@ def magazine_detail(
 
     sort = _validate_sort(sort, PER_ISSUE_SORT_OPTIONS, DEFAULT_PER_ISSUE_SORT)
     per_page = _validate_per_page(per_page)
+    match_all_b = bool(match_all)
+    match_phrase_b = bool(match_phrase)
 
     results: list | None = None
     has_more = False
@@ -228,7 +251,8 @@ def magazine_detail(
         page = max(page, 1)
         offset = (page - 1) * per_page
         hits = search_in_magazine(
-            db, q, magazine_id, offset=offset, limit=per_page + 1, sort=sort
+            db, q, magazine_id, offset=offset, limit=per_page + 1, sort=sort,
+            match_all=match_all_b, match_phrase=match_phrase_b,
         )
         has_more = len(hits) > per_page
         results = hits[:per_page]
@@ -246,6 +270,8 @@ def magazine_detail(
             "per_page": per_page,
             "per_page_options": PER_PAGE_OPTIONS,
             "sort_options": PER_ISSUE_SORT_OPTIONS,
+            "match_all": match_all_b,
+            "match_phrase": match_phrase_b,
         },
     )
 

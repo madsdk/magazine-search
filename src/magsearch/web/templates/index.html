@@ -41,12 +41,32 @@
   <div class="col-span-12 md:col-span-2 caps caps-soft pb-3">
     Find a&nbsp;phrase
   </div>
-  <form action="/search" method="get" class="col-span-12 md:col-span-10 flex items-end gap-4">
-    <input type="text" name="q"
-           placeholder="a name, a title, a turn of phrase…"
-           class="field-editorial flex-1"
-           autocomplete="off">
-    <button class="caps accent pb-3 hover:underline">search&nbsp;→</button>
+  <form action="/search" method="get" class="col-span-12 md:col-span-10">
+    <div class="flex items-end gap-4">
+      <input type="text" name="q"
+             placeholder="a name, a title, a turn of phrase…"
+             class="field-editorial flex-1"
+             autocomplete="off">
+      <button class="caps accent pb-3 hover:underline">search&nbsp;→</button>
+    </div>
+    <div class="mt-3 caps caps-soft flex flex-wrap items-center gap-x-6 gap-y-1">
+      {# Hidden "0" sits BEFORE the checkbox so that, when the checkbox is
+         checked, the form submits ?match_all=0&match_all=1 — and FastAPI's
+         query parser takes the LAST value (= 1). When the checkbox is
+         unchecked, only the hidden 0 submits. #}
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="hidden" name="match_all" value="0">
+        <input type="checkbox" name="match_all" value="1" checked
+               class="accent-[var(--accent)]">
+        <span>all terms must match</span>
+      </label>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="hidden" name="match_phrase" value="0">
+        <input type="checkbox" name="match_phrase" value="1"
+               class="accent-[var(--accent)]">
+        <span>match words in order</span>
+      </label>
+    </div>
   </form>
 </section>
 
@@ -57,6 +77,7 @@
   <p class="col-span-12 md:col-span-10 italic text-[var(--ink-soft)] text-sm">
     Tip — wrap a phrase in quotes for an exact match,
     e.g.&nbsp;<span class="not-italic font-serif">"vintage synthesizer"</span>.
+    Toggle <em>match words in order</em> to require the whole query as a phrase.
   </p>
 </section>
 

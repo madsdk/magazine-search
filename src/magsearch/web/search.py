@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 _SAFE_WORD = re.compile(r"[A-Za-z0-9]+")
 
 
-def sanitize_query(raw: str) -> str:
+def sanitize_query(
+    raw: str,
+    *,
+    match_all: bool = True,
+    match_phrase: bool = False,
+) -> str:
     raw = raw.strip()
     if not raw:
         return ""
@@ -17,7 +22,10 @@ def sanitize_query(raw: str) -> str:
     if raw.count('"') % 2 != 0:
         raw = raw.replace('"', "")
 
-    out_parts: list[str] = []
+    # Top-level parts (bare words and "quoted phrases"), plus the flat list
+    # of plain words for phrase-mode reassembly.
+    parts: list[str] = []
+    plain_words: list[str] = []
     i = 0
     while i < len(raw):
         ch = raw[i]
@@ -25,18 +33,29 @@ def sanitize_query(raw: str) -> str:
             close = raw.find('"', i + 1)
             if close == -1:
                 break
-            inner = " ".join(_SAFE_WORD.findall(raw[i + 1:close]))
-            if inner:
-                out_parts.append(f'"{inner}"')
+            words = _SAFE_WORD.findall(raw[i + 1:close])
+            if words:
+                parts.append('"' + " ".join(words) + '"')
+                plain_words.extend(words)
             i = close + 1
         else:
             m = _SAFE_WORD.match(raw, i)
             if m:
-                out_parts.append(m.group(0))
+                parts.append(m.group(0))
+                plain_words.append(m.group(0))
                 i = m.end()
             else:
                 i += 1
-    return " ".join(out_parts)
+
+    if match_phrase:
+        if not plain_words:
+            return ""
+        return '"' + " ".join(plain_words) + '"'
+    if not parts:
+        return ""
+    if match_all:
+        return " ".join(parts)
+    return " OR ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -234,8 +253,10 @@ def search(
     offset: int,
     limit: int,
     sort: str = DEFAULT_FLAT_SORT,
+    match_all: bool = True,
+    match_phrase: bool = False,
 ) -> list[SearchResult]:
-    q = sanitize_query(raw_query)
+    q = sanitize_query(raw_query, match_all=match_all, match_phrase=match_phrase)
     if not q:
         return []
     stmt = _pick(_FLAT_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)
@@ -254,8 +275,10 @@ def search_in_magazine(
     offset: int,
     limit: int,
     sort: str = DEFAULT_PER_ISSUE_SORT,
+    match_all: bool = True,
+    match_phrase: bool = False,
 ) -> list[SearchResult]:
-    q = sanitize_query(raw_query)
+    q = sanitize_query(raw_query, match_all=match_all, match_phrase=match_phrase)
     if not q:
         return []
     stmt = _pick(_PER_ISSUE_SQL_BY_SORT, sort, DEFAULT_PER_ISSUE_SORT)
@@ -277,8 +300,10 @@ def search_in_magazine_title(
     offset: int,
     limit: int,
     sort: str = DEFAULT_FLAT_SORT,
+    match_all: bool = True,
+    match_phrase: bool = False,
 ) -> list[SearchResult]:
-    q = sanitize_query(raw_query)
+    q = sanitize_query(raw_query, match_all=match_all, match_phrase=match_phrase)
     if not q:
         return []
     stmt = _pick(_PER_TITLE_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)
@@ -299,8 +324,10 @@ def search_magazines(
     offset: int,
     limit: int,
     sort: str = DEFAULT_FLAT_SORT,
+    match_all: bool = True,
+    match_phrase: bool = False,
 ) -> list[MagazineMatch]:
-    q = sanitize_query(raw_query)
+    q = sanitize_query(raw_query, match_all=match_all, match_phrase=match_phrase)
     if not q:
         return []
     stmt = _pick(_GROUPED_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)

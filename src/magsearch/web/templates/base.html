@@ -270,5 +270,26 @@
   </div>
 </footer>
 
+<script>
+  // Forms that combine a checkbox with a same-name hidden=0 input (so an
+  // unchecked box still submits a value) would otherwise serialize *both*
+  // when the box is checked, producing ?x=0&x=1 in the URL. The server
+  // resolves the last value correctly, but the URL is noisy. On submit,
+  // disable the hidden twin whenever the checkbox is checked so each
+  // name appears once.
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (!form || form.tagName !== "FORM") return;
+    var cbs = form.querySelectorAll('input[type="checkbox"][name]');
+    for (var i = 0; i < cbs.length; i++) {
+      if (!cbs[i].checked) continue;
+      var twins = form.querySelectorAll(
+        'input[type="hidden"][name="' + cbs[i].name + '"]'
+      );
+      for (var j = 0; j < twins.length; j++) twins[j].disabled = true;
+    }
+  }, true);
+</script>
+
 </body>
 </html>

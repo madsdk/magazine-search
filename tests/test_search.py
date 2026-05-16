@@ -57,6 +57,32 @@ def test_sanitize_query_balances_unmatched_quote():
     assert sanitize_query('hello"') == "hello"
 
 
+def test_sanitize_query_match_any_uses_or():
+    # When match_all=False, top-level parts are OR'd (FTS5 OR is uppercase).
+    assert sanitize_query("hello world", match_all=False) == "hello OR world"
+    assert sanitize_query("one two three", match_all=False) == "one OR two OR three"
+    # A single term has nothing to OR with.
+    assert sanitize_query("hello", match_all=False) == "hello"
+    # Quoted phrases remain phrases, OR'd against bare words.
+    assert sanitize_query('"vintage synth" modem', match_all=False) == \
+        '"vintage synth" OR modem'
+
+
+def test_sanitize_query_match_phrase_wraps_everything():
+    # match_phrase=True collapses every word into one sequential phrase,
+    # regardless of existing quotes.
+    assert sanitize_query("this must be like that", match_phrase=True) == \
+        '"this must be like that"'
+    assert sanitize_query('"vintage synth" modem', match_phrase=True) == \
+        '"vintage synth modem"'
+    # match_phrase overrides match_all (phrase implies AND in order).
+    assert sanitize_query("a b c", match_all=False, match_phrase=True) == \
+        '"a b c"'
+    # Empty / junk inputs stay empty.
+    assert sanitize_query("", match_phrase=True) == ""
+    assert sanitize_query("!@#", match_phrase=True) == ""
+
+
 def test_search_returns_stemmed_hits(populated_db):
     factory = populated_db
     with session_scope(factory) as s:
@@ -223,3 +249,47 @@ def test_search_magazines_sort_newest(two_magazines_db):
     assert len(groups) == 2
     assert groups[0].magazine_id == "byte-1985-12"
     assert groups[1].magazine_id == "compute-1984-06"
+
+
+def test_search_match_all_requires_every_term(populated_db):
+    # Byte fixture: p1="vintage synthesizer review", p3="synthesizer keyboards in 1985".
+    # Only p3 contains both "synthesizer" and "keyboards"; p1 only has "synthesizer".
+    factory = populated_db
+    with session_scope(factory) as s:
+        hits = search(s, "synthesizer keyboards", offset=0, limit=10)
+    assert {h.page_number for h in hits} == {3}
+
+
+def test_search_match_any_term_returns_either(populated_db):
+    # Same fixture; "modem" appears on p2, "synthesizer" on p1+p3.
+    # match_all=False should return all three pages.
+    factory = populated_db
+    with session_scope(factory) as s:
+        hits = search(s, "modem synthesizer", offset=0, limit=10, match_all=False)
+    assert {h.page_number for h in hits} == {1, 2, 3}
+
+
+def test_search_match_phrase_requires_order(populated_db):
+    # p1 = "vintage synthesizer review" — words in order should match.
+    # The reversed phrase should not.
+    factory = populated_db
+    with session_scope(factory) as s:
+        in_order = search(s, "vintage synthesizer", offset=0, limit=10,
+                          match_phrase=True)
+        reversed_ = search(s, "synthesizer vintage", offset=0, limit=10,
+                           match_phrase=True)
+        # Without match_phrase, both terms are present on p1 so it matches.
+        unordered = search(s, "synthesizer vintage", offset=0, limit=10)
+    assert {h.page_number for h in in_order} == {1}
+    assert reversed_ == []
+    assert {h.page_number for h in unordered} == {1}
+
+
+def test_search_match_phrase_overrides_match_all_off(populated_db):
+    # Even with match_all=False, match_phrase=True collapses the query
+    # into a single phrase — so a non-matching order returns nothing.
+    factory = populated_db
+    with session_scope(factory) as s:
+        hits = search(s, "keyboards synthesizer", offset=0, limit=10,
+                      match_all=False, match_phrase=True)
+    assert hits == []
