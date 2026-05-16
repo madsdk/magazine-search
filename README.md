@@ -45,6 +45,10 @@ communicate only through a directory of files (the "bundle").
 - The server box stays lightweight: no GPU, no PaddleOCR.
 - Re-running `magsearch ingest` on the same file is a no-op (content-hash
   guarded). Re-running `magsearch import` on the same bundle is idempotent.
+- Two issues released in the same month (e.g. a regular December issue and a
+  Christmas double) won't clobber each other — the second bundle's id is
+  disambiguated with the slugified `--issue` (preferred) or a content-hash
+  suffix as fallback. See [Bulk ingestion](#bulk-ingestion) below.
 
 ## Development setup
 
@@ -58,7 +62,7 @@ pip install -e ".[dev]"
 pytest -v
 ```
 
-Expected: 62 passed, 1 skipped (CBR fixture not present by default), 1
+Expected: 151 passed, 1 skipped (CBR fixture not present by default), 1
 deselected (real PaddleOCR test is opt-in).
 
 Run the web app locally against an empty DB to sanity-check:
@@ -202,6 +206,70 @@ magsearch import /data/bundles/byte-1985-12
 
 The web app picks up the new magazine immediately.
 
+## Bulk ingestion
+
+For ingesting a whole collection (hundreds or thousands of files), drive the
+pipeline with `bulk-ingest` and `bulk-import`. Both are thin wrappers around the
+single-file commands above and preserve the same two-machine flow.
+
+### Sidecar metadata
+
+Put a `metadata.csv` (or `metadata.json`) next to the source files. Only
+`filename` is required; the rest mirror the single-file `ingest` flags:
+
+```csv
+filename,title,issue,date,publisher
+byte-1985-12.pdf,Byte,Vol 10 No 12,1985-12-01,McGraw-Hill
+byte-1985-12-xmas.pdf,Byte,Christmas Double,1985-12-15,McGraw-Hill
+byte-1986-01.pdf,Byte,Vol 11 No 1,1986-01-01,McGraw-Hill
+```
+
+CSV tolerates `#` comments and blank lines. JSON form is a top-level array of
+objects with the same keys.
+
+### Running bulk ingest
+
+```bash
+magsearch bulk-ingest ./input \
+  --bundles-dir ./bundles
+```
+
+`bulk-ingest` walks the directory, applies sidecar metadata per file, calls the
+per-file pipeline on each, and writes progress to
+`./input/.bulk-state.jsonl`. Crash and re-run — already-completed files are
+skipped via the state log; partially-done files are safe to retry (the per-file
+pipeline writes `manifest.json` atomically as its last step).
+
+| flag | purpose |
+|---|---|
+| `--sidecar PATH` | Override sidecar location (default: `<input>/metadata.csv` or `metadata.json`) |
+| `--state-file PATH` | Override state log location |
+| `--recursive` | Walk subdirectories |
+| `--retry-failed` | Re-attempt files previously marked `failed` |
+| `--force-all` | Pass `--force` to every per-file ingest |
+| `--strict-sidecar` | Error (instead of warn) when files have no sidecar row |
+| `--halt-on-error` | Stop the batch on first failure |
+| `--dry-run` | Print planned actions; touch nothing |
+| `--fake-ocr`, `--device`, `--verbose` | Passthrough to the per-file pipeline |
+
+The state log records, per file: `status` (`done` / `failed` / `in_progress` /
+`pending`), `attempts`, `bundle_id`, `content_hash`, and the last error. Inspect
+it with `jq` if you need to triage failures across a long run.
+
+### Importing on the server
+
+```bash
+rsync -aP ./bundles/ server:/data/bundles/
+ssh server
+magsearch bulk-import /data/bundles
+```
+
+`bulk-import` walks every subdirectory of `/data/bundles` and imports each
+bundle, with its own state log at
+`/data/bundles/.bulk-import-state.jsonl`. Re-runs are idempotent — bundles
+already imported are skipped, and bundles previously marked `failed` are
+skipped unless `--retry-failed` is passed.
+
 ## Deploying the web app with Docker
 
 The repo ships a `Dockerfile` for the server side (no GPU, no PaddleOCR).
@@ -247,6 +315,37 @@ deployment state.
 The ingestion image is heavier (~5 GB unpacked, mostly CUDA) but means you
 don't have to set up CUDA / paddle on the host yourself.
 
+## Authentication & admin
+
+The web app ships with an optional session-based login and a small admin UI
+at `/admin` (dashboard, issue editor, user management, app config). Whether
+visitors must log in is itself a config toggle (`require_login` in the admin
+config page) — leave it off for a fully public archive, turn it on to gate the
+site behind a password.
+
+Set `MAGSEARCH_SESSION_SECRET` to any non-empty random string in production.
+If unset, the app falls back to a hard-coded insecure dev value — fine for
+local poking, bad for anything reachable from the internet.
+
+Create the first admin user from the CLI:
+
+```bash
+magsearch admin create alice
+# password: ******
+```
+
+Related CLI commands:
+
+| command | purpose |
+|---|---|
+| `magsearch admin create <user>` | Create an administrator (prompts for password) |
+| `magsearch admin list` | List all users with admin/user role flag |
+| `magsearch admin reset-password <user>` | Reset a user's password |
+
+Once an admin exists, sign in at `/login` and the rest of user management
+(create/edit/delete users, promote to admin, change the public/private toggle)
+lives in `/admin`.
+
 ## Configuration
 
 Both CLI and web app read settings from environment variables (or a `.env`
@@ -256,34 +355,44 @@ file in the working directory). All names are prefixed with `MAGSEARCH_`.
 |---|---|---|
 | `MAGSEARCH_DATABASE_URL` | `sqlite:///./data/magsearch.db` | SQLAlchemy URL. Stick with SQLite. |
 | `MAGSEARCH_BUNDLES_DIR` | `./data/bundles` | Where the web app looks up page images and originals. |
+| `MAGSEARCH_SESSION_SECRET` | _(empty → insecure dev fallback)_ | Signs login session cookies. Set to a long random string in production. |
 
-Inside the Docker image these are pre-set to `sqlite:////data/magsearch.db`
-and `/data/bundles`.
+Inside the Docker image the first two are pre-set to `sqlite:////data/magsearch.db`
+and `/data/bundles`. Pass `MAGSEARCH_SESSION_SECRET` for any non-throwaway
+deployment (e.g. `docker run -e MAGSEARCH_SESSION_SECRET=$(openssl rand -hex 32) …`).
 
 ## Project layout
 
 ```
 src/magsearch/
-  cli.py                 # typer: ingest, import, web, db
+  cli.py                 # typer: ingest, bulk-ingest, import, bulk-import, web, db, admin
   settings.py            # pydantic-settings
   db.py                  # SQLAlchemy engine + session
-  models.py              # Magazine, Page
+  models.py              # Magazine, Page, User, AppConfig
   manifest.py            # bundle manifest (cross-machine contract)
   importer.py            # bundle dir → DB
+  bulk_import.py         # iterate bundles dir → DB, with resumable state log
   ingest/
     pipeline.py          # 6-step orchestrator
+    bulk.py              # iterate input dir, sidecar parsing, state log
     formats.py           # PDF / CBZ / CBR readers
     normalize.py         # WebP encoding
     ocr.py               # OCREngine, FakeOCREngine, PaddleOCREngine
-    ids.py               # slug + content hash
+    ids.py               # slug, content hash, collision-safe id resolver
   web/
     app.py / routes.py   # FastAPI app
     search.py / deps.py
-    templates/           # Jinja2
+    auth.py              # password hashing, session helpers
+    middleware.py        # require-login gate
+    config_service.py    # app_config table accessors
+    routes_admin.py      # /admin/* (dashboard, issues, users, config)
+    routes_auth.py       # /login, /logout
+    templates/           # Jinja2 (incl. admin/*)
 
 alembic/                 # migrations
 tests/                   # pytest suite
 Dockerfile
+Dockerfile.ingest
 ```
 
 ## Tests
@@ -306,9 +415,8 @@ These are deliberate gaps recorded for later:
   for human output; nothing emits to `logging.*`.
 - **`--workers N` flag from the spec is unimplemented.** PDF rendering and
   WebP encoding are single-process. PaddleOCR manages its own GPU batching
-  so this only affects the image-IO side.
+  so this only affects the image-IO side. `bulk-ingest` is also serial for the
+  same reason — parallel OCR would contend on one GPU.
 - **CBR test fixture is not checked in.** Creating a `.rar` archive needs the
   proprietary `rar` binary. `tests/fixtures/cbzs.py` has the exact command;
   drop a `tests/fixtures/tiny.cbr` in place and the auto-skipped test runs.
-- **No auth.** Intended to live behind a VPN / Tailscale / private URL. If
-  you need a shared password, FastAPI middleware is a small addition.

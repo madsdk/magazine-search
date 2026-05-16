@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 
 from magsearch.ingest.formats import detect_format, page_count, read_pages
-from magsearch.ingest.ids import content_hash, generate_id
+from magsearch.ingest.ids import content_hash, generate_id, resolve_unique_id
 from magsearch.ingest.normalize import encode_page, encode_thumb, write_cover
 from magsearch.ingest.ocr import OCREngine, OCRRegion, concatenate_reading_order
 from magsearch.manifest import FileChecksum, Manifest, PageEntry
@@ -58,6 +58,15 @@ class IngestPipeline:
             override=self.options.id_override,
             content_hash=hash_hex,
         )
+        # An explicit --id is an instruction, not a suggestion: don't disambiguate.
+        # The importer will surface the collision so the user can decide what to do.
+        if self.options.id_override is None:
+            magazine_id = resolve_unique_id(
+                base_id=magazine_id,
+                content_hash=hash_hex,
+                issue=self.options.issue,
+                bundles_root=self.bundles_root,
+            )
         bundle = self.bundles_root / magazine_id
 
         manifest_path = bundle / "manifest.json"

@@ -10,8 +10,10 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import select
 
+from magsearch.bulk_import import bulk_import
 from magsearch.db import make_engine, make_session_factory, session_scope
 from magsearch.importer import ImportError as MagImportError, import_bundle
+from magsearch.ingest.bulk import SidecarError, bulk_ingest
 from magsearch.ingest.ocr import FakeOCREngine
 from magsearch.ingest.pipeline import IngestOptions, IngestPipeline
 from magsearch.models import User
@@ -40,6 +42,23 @@ def _make_progress_reporter():
         width[0] = len(msg)
 
     return report
+
+
+def _build_ocr_engine(*, fake_ocr: bool, device: str, verbose: bool):
+    """Construct the OCR engine the ingest/bulk-ingest commands feed to IngestPipeline.
+
+    Centralized so that the single-file and bulk-ingest commands share device
+    handling — keep them in lockstep instead of forking the GPU-detection logic.
+    """
+    if fake_ocr:
+        return FakeOCREngine()
+    from magsearch.ingest.ocr import PaddleOCREngine
+    device_norm = device.lower()
+    if device_norm not in {"auto", "cpu", "gpu"}:
+        typer.echo(f"--device must be auto, cpu, or gpu (got {device!r})", err=True)
+        raise typer.Exit(code=2)
+    use_gpu = None if device_norm == "auto" else (device_norm == "gpu")
+    return PaddleOCREngine(use_gpu=use_gpu, verbose=verbose)
 
 
 def _alembic_cfg() -> Config:
@@ -83,16 +102,7 @@ def ingest_cmd(
     settings = get_settings()
     target_bundles = bundles_dir or settings.bundles_dir
     parsed_date = date.fromisoformat(publication_date) if publication_date else None
-    if fake_ocr:
-        engine = FakeOCREngine()
-    else:
-        from magsearch.ingest.ocr import PaddleOCREngine
-        device_norm = device.lower()
-        if device_norm not in {"auto", "cpu", "gpu"}:
-            typer.echo(f"--device must be auto, cpu, or gpu (got {device!r})", err=True)
-            raise typer.Exit(code=2)
-        use_gpu = None if device_norm == "auto" else (device_norm == "gpu")
-        engine = PaddleOCREngine(use_gpu=use_gpu, verbose=verbose)
+    engine = _build_ocr_engine(fake_ocr=fake_ocr, device=device, verbose=verbose)
     pipeline = IngestPipeline(
         bundles_root=target_bundles,
         ocr_engine=engine,
@@ -115,6 +125,100 @@ def ingest_cmd(
     )
 
 
+@app.command("bulk-ingest")
+def bulk_ingest_cmd(
+    input_dir: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    sidecar: Path | None = typer.Option(
+        None, "--sidecar",
+        help="CSV or JSON sidecar with per-file metadata. "
+             "Defaults to <input-dir>/metadata.csv (then metadata.json).",
+    ),
+    state_file: Path | None = typer.Option(
+        None, "--state-file",
+        help="Per-file state log (JSONL). Default: <input-dir>/.bulk-state.jsonl",
+    ),
+    bundles_dir: Path | None = typer.Option(None, "--bundles-dir"),
+    recursive: bool = typer.Option(False, "--recursive/--no-recursive"),
+    retry_failed: bool = typer.Option(
+        False, "--retry-failed",
+        help="Re-attempt files that previously ended in 'failed'.",
+    ),
+    force_all: bool = typer.Option(
+        False, "--force-all",
+        help="Pass force=True to every per-file ingest (overwrite matching bundles).",
+    ),
+    strict_sidecar: bool = typer.Option(
+        False, "--strict-sidecar",
+        help="Error out when files have no sidecar row (default: warn).",
+    ),
+    halt_on_error: bool = typer.Option(
+        False, "--halt-on-error",
+        help="Stop the batch on the first failure (default: record and continue).",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    fake_ocr: bool = typer.Option(
+        False, "--fake-ocr", help="Use FakeOCREngine (tests / dry runs).",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    device: str = typer.Option("auto", "--device"),
+) -> None:
+    """Ingest every PDF/CBR/CBZ in a directory, with resumable per-file state."""
+    settings = get_settings()
+    target_bundles = bundles_dir or settings.bundles_dir
+    engine = _build_ocr_engine(fake_ocr=fake_ocr, device=device, verbose=verbose)
+
+    on_page = _make_progress_reporter()
+
+    def on_file_start(i: int, n: int, p: Path) -> None:
+        typer.echo(f"[{i}/{n}] {p.name}", err=True)
+
+    def on_file_end(i: int, n: int, p: Path, entry) -> None:
+        if on_page is not None:
+            typer.echo("", err=True)  # finish the in-place per-page line
+        if entry.status == "done":
+            typer.echo(f"  → done: {entry.bundle_id}", err=True)
+        elif entry.status == "failed":
+            typer.echo(f"  → FAILED: {entry.error}", err=True)
+        else:  # skipped (already done or previously failed without --retry-failed)
+            label = "skipped (already done)" if entry.status == "done" else f"skipped ({entry.status})"
+            typer.echo(f"  → {label}", err=True)
+
+    def on_warning(msg: str) -> None:
+        typer.echo(f"[warn] {msg}", err=True)
+
+    try:
+        result = bulk_ingest(
+            input_dir=input_dir,
+            sidecar_path=sidecar,
+            state_path=state_file,
+            bundles_dir=target_bundles,
+            ocr_engine=engine,
+            recursive=recursive,
+            strict_sidecar=strict_sidecar,
+            retry_failed=retry_failed,
+            force_all=force_all,
+            halt_on_error=halt_on_error,
+            dry_run=dry_run,
+            on_warning=on_warning,
+            on_file_start=on_file_start,
+            on_file_end=on_file_end,
+            on_page=on_page,
+        )
+    except SidecarError as exc:
+        typer.echo(f"sidecar error: {exc}", err=True)
+        raise typer.Exit(code=2)
+    except FileNotFoundError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2)
+
+    typer.echo(
+        f"bulk-ingest: {result.succeeded} done, {result.failed} failed, "
+        f"{result.skipped} skipped — state at {result.state_file}",
+    )
+    if result.failed and not halt_on_error:
+        raise typer.Exit(code=1)
+
+
 @app.command("import")
 def import_cmd(bundle: Annotated[Path, typer.Argument(exists=True, file_okay=False)]) -> None:
     settings = get_settings()
@@ -126,6 +230,54 @@ def import_cmd(bundle: Annotated[Path, typer.Argument(exists=True, file_okay=Fal
         typer.echo(f"imported {mag_id}")
     except MagImportError as exc:
         typer.echo(f"import failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("bulk-import")
+def bulk_import_cmd(
+    bundles_dir: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    state_file: Path | None = typer.Option(
+        None, "--state-file",
+        help="Per-bundle state log (JSONL). Default: <bundles-dir>/.bulk-import-state.jsonl",
+    ),
+    retry_failed: bool = typer.Option(False, "--retry-failed"),
+    halt_on_error: bool = typer.Option(False, "--halt-on-error"),
+) -> None:
+    """Import every bundle subdirectory under <bundles-dir> into the database."""
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    factory = make_session_factory(engine)
+
+    def on_bundle_start(i: int, n: int, p: Path) -> None:
+        typer.echo(f"[{i}/{n}] {p.name}", err=True)
+
+    def on_bundle_end(i: int, n: int, p: Path, entry) -> None:
+        if entry.status == "done":
+            typer.echo(f"  → done: {entry.magazine_id}", err=True)
+        elif entry.status == "failed":
+            typer.echo(f"  → FAILED: {entry.error}", err=True)
+        else:
+            typer.echo(f"  → skipped ({entry.status})", err=True)
+
+    try:
+        result = bulk_import(
+            bundles_dir=bundles_dir,
+            state_path=state_file,
+            session_factory=factory,
+            retry_failed=retry_failed,
+            halt_on_error=halt_on_error,
+            on_bundle_start=on_bundle_start,
+            on_bundle_end=on_bundle_end,
+        )
+    except FileNotFoundError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2)
+
+    typer.echo(
+        f"bulk-import: {result.succeeded} done, {result.failed} failed, "
+        f"{result.skipped} skipped — state at {result.state_file}",
+    )
+    if result.failed and not halt_on_error:
         raise typer.Exit(code=1)
 
 
