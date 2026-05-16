@@ -13,6 +13,7 @@ from magsearch.web.search import (
     sanitize_query,
     search,
     search_in_magazine,
+    search_in_magazine_title,
     search_magazines,
 )
 from tests.fixtures.pdfs import make_pdf
@@ -159,3 +160,66 @@ def test_search_in_magazine_empty_query_returns_empty(two_magazines_db):
     with session_scope(factory) as s:
         assert search_in_magazine(s, "", "byte-1985-12",
                                   offset=0, limit=10) == []
+
+
+def test_search_sort_newest_orders_by_date_desc(two_magazines_db):
+    # Byte = 1985-12, Compute = 1984-06. sort=newest should put Byte first.
+    factory = two_magazines_db
+    with session_scope(factory) as s:
+        hits = search(s, "synthesizer", offset=0, limit=10, sort="newest")
+    assert len(hits) == 3
+    assert hits[0].magazine_id == "byte-1985-12"
+    assert hits[-1].magazine_id == "compute-1984-06"
+
+
+def test_search_sort_oldest_orders_by_date_asc(two_magazines_db):
+    factory = two_magazines_db
+    with session_scope(factory) as s:
+        hits = search(s, "synthesizer", offset=0, limit=10, sort="oldest")
+    assert len(hits) == 3
+    assert hits[0].magazine_id == "compute-1984-06"
+    assert hits[-1].magazine_id == "byte-1985-12"
+
+
+def test_search_invalid_sort_falls_back_to_rank(two_magazines_db):
+    factory = two_magazines_db
+    with session_scope(factory) as s:
+        bogus = search(s, "synthesizer", offset=0, limit=10, sort="bogus")
+        default = search(s, "synthesizer", offset=0, limit=10)
+    assert [(h.magazine_id, h.page_number) for h in bogus] == \
+           [(h.magazine_id, h.page_number) for h in default]
+
+
+def test_search_in_magazine_sort_page_orders_ascending(populated_db):
+    # populated_db Byte issue has matches on pages 1 and 3.
+    factory = populated_db
+    with session_scope(factory) as s:
+        hits = search_in_magazine(
+            s, "synthesizer", "byte-1985-12",
+            offset=0, limit=10, sort="page",
+        )
+    assert [h.page_number for h in hits] == [1, 3]
+
+
+def test_search_in_magazine_title_sort_newest(two_magazines_db):
+    # Per-title with sort=newest. Use title "Byte" — only one issue so
+    # mostly verifies the SQL doesn't blow up and returns expected pages.
+    factory = two_magazines_db
+    with session_scope(factory) as s:
+        hits = search_in_magazine_title(
+            s, "synthesizer", "Byte", offset=0, limit=10, sort="newest",
+        )
+    assert {h.page_number for h in hits} == {1, 3}
+
+
+def test_search_magazines_sort_newest(two_magazines_db):
+    # Grouped view: Byte (1985-12) should come before Compute (1984-06)
+    # when sorted newest-first.
+    factory = two_magazines_db
+    with session_scope(factory) as s:
+        groups = search_magazines(
+            s, "synthesizer", offset=0, limit=10, sort="newest",
+        )
+    assert len(groups) == 2
+    assert groups[0].magazine_id == "byte-1985-12"
+    assert groups[1].magazine_id == "compute-1984-06"

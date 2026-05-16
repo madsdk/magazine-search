@@ -12,6 +12,10 @@ from magsearch.models import Page as PageModel
 from magsearch.settings import Settings, get_settings
 from magsearch.web.deps import get_db
 from magsearch.web.search import (
+    DEFAULT_FLAT_SORT,
+    DEFAULT_PER_ISSUE_SORT,
+    FLAT_SORT_OPTIONS,
+    PER_ISSUE_SORT_OPTIONS,
     search,
     search_in_magazine,
     search_in_magazine_title,
@@ -21,7 +25,34 @@ from magsearch.web.search import (
 router = APIRouter()
 _TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
-_PAGE_SIZE = 25
+# Page-size whitelist. Bare 25 is the historical default.
+PER_PAGE_OPTIONS = (25, 50, 100)
+DEFAULT_PER_PAGE = 25
+
+# Hard total-result caps. Beyond these, pagination ends and the UI shows
+# "SHOWING TOP N MATCHES — REFINE YOUR QUERY". Bounds OFFSET-on-rank cost
+# at production scale (100k+ pages).
+FLAT_RESULT_CAP = 1000      # /search?view=flat and /magazines/{title}?q=…
+GROUPED_RESULT_CAP = 200    # /search?view=grouped (caps magazines, not pages)
+
+
+def _validate_per_page(value: int) -> int:
+    return value if value in PER_PAGE_OPTIONS else DEFAULT_PER_PAGE
+
+
+def _validate_sort(value: str, options: tuple[str, ...], default: str) -> str:
+    return value if value in options else default
+
+
+def _max_page(result_cap: int, per_page: int) -> int:
+    # ceil(cap / per_page), guaranteed >= 1
+    return max(1, -(-result_cap // per_page))
+
+
+def _clamp_page(page: int, result_cap: int, per_page: int) -> tuple[int, int]:
+    """Returns (clamped_page, max_page)."""
+    max_page = _max_page(result_cap, per_page)
+    return min(max(page, 1), max_page), max_page
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -50,17 +81,25 @@ def search_route(
     q: str = Query(default=""),
     page: int = Query(default=1, ge=1),
     view: str = Query(default="grouped"),
+    sort: str = Query(default=DEFAULT_FLAT_SORT),
+    per_page: int = Query(default=DEFAULT_PER_PAGE),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     if view not in ("grouped", "flat"):
         view = "grouped"
-    offset = (page - 1) * _PAGE_SIZE
+    sort = _validate_sort(sort, FLAT_SORT_OPTIONS, DEFAULT_FLAT_SORT)
+    per_page = _validate_per_page(per_page)
+    result_cap = FLAT_RESULT_CAP if view == "flat" else GROUPED_RESULT_CAP
+    page, max_page = _clamp_page(page, result_cap, per_page)
+
+    offset = (page - 1) * per_page
     if view == "flat":
-        results = search(db, q, offset=offset, limit=_PAGE_SIZE + 1)
+        results = search(db, q, offset=offset, limit=per_page + 1, sort=sort)
     else:
-        results = search_magazines(db, q, offset=offset, limit=_PAGE_SIZE + 1)
-    has_more = len(results) > _PAGE_SIZE
-    results = results[:_PAGE_SIZE]
+        results = search_magazines(db, q, offset=offset, limit=per_page + 1, sort=sort)
+    has_more = len(results) > per_page and page < max_page
+    results = results[:per_page]
+    at_result_cap = page >= max_page and len(results) >= per_page
     return _TEMPLATES.TemplateResponse(
         request,
         "search.html",
@@ -70,6 +109,12 @@ def search_route(
             "page": page,
             "has_more": has_more,
             "view": view,
+            "sort": sort,
+            "per_page": per_page,
+            "per_page_options": PER_PAGE_OPTIONS,
+            "sort_options": FLAT_SORT_OPTIONS,
+            "at_result_cap": at_result_cap,
+            "result_cap": result_cap,
         },
     )
 
@@ -112,6 +157,8 @@ def magazine_issues(
     title: str,
     q: str = Query(default=""),
     page: int = Query(default=1, ge=1),
+    sort: str = Query(default=DEFAULT_FLAT_SORT),
+    per_page: int = Query(default=DEFAULT_PER_PAGE),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     issues = db.scalars(
@@ -121,15 +168,23 @@ def magazine_issues(
     ).all()
     if not issues:
         raise HTTPException(status_code=404, detail="magazine not found")
+
+    sort = _validate_sort(sort, FLAT_SORT_OPTIONS, DEFAULT_FLAT_SORT)
+    per_page = _validate_per_page(per_page)
+
     results: list | None = None
     has_more = False
+    at_result_cap = False
+    max_page = 1
     if q.strip():
-        offset = (page - 1) * _PAGE_SIZE
+        page, max_page = _clamp_page(page, FLAT_RESULT_CAP, per_page)
+        offset = (page - 1) * per_page
         hits = search_in_magazine_title(
-            db, q, title, offset=offset, limit=_PAGE_SIZE + 1
+            db, q, title, offset=offset, limit=per_page + 1, sort=sort
         )
-        has_more = len(hits) > _PAGE_SIZE
-        results = hits[:_PAGE_SIZE]
+        has_more = len(hits) > per_page and page < max_page
+        results = hits[:per_page]
+        at_result_cap = page >= max_page and len(results) >= per_page
     return _TEMPLATES.TemplateResponse(
         request,
         "magazine_issues.html",
@@ -140,6 +195,12 @@ def magazine_issues(
             "results": results,
             "page": page,
             "has_more": has_more,
+            "sort": sort,
+            "per_page": per_page,
+            "per_page_options": PER_PAGE_OPTIONS,
+            "sort_options": FLAT_SORT_OPTIONS,
+            "at_result_cap": at_result_cap,
+            "result_cap": FLAT_RESULT_CAP,
         },
     )
 
@@ -150,20 +211,27 @@ def magazine_detail(
     magazine_id: str,
     q: str = Query(default=""),
     page: int = Query(default=1, ge=1),
+    sort: str = Query(default=DEFAULT_PER_ISSUE_SORT),
+    per_page: int = Query(default=DEFAULT_PER_PAGE),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     mag = db.get(Magazine, magazine_id)
     if mag is None:
         raise HTTPException(status_code=404, detail="magazine not found")
+
+    sort = _validate_sort(sort, PER_ISSUE_SORT_OPTIONS, DEFAULT_PER_ISSUE_SORT)
+    per_page = _validate_per_page(per_page)
+
     results: list | None = None
     has_more = False
     if q.strip():
-        offset = (page - 1) * _PAGE_SIZE
+        page = max(page, 1)
+        offset = (page - 1) * per_page
         hits = search_in_magazine(
-            db, q, magazine_id, offset=offset, limit=_PAGE_SIZE + 1
+            db, q, magazine_id, offset=offset, limit=per_page + 1, sort=sort
         )
-        has_more = len(hits) > _PAGE_SIZE
-        results = hits[:_PAGE_SIZE]
+        has_more = len(hits) > per_page
+        results = hits[:per_page]
     return _TEMPLATES.TemplateResponse(
         request,
         "magazine.html",
@@ -174,6 +242,10 @@ def magazine_detail(
             "results": results,
             "page": page,
             "has_more": has_more,
+            "sort": sort,
+            "per_page": per_page,
+            "per_page_options": PER_PAGE_OPTIONS,
+            "sort_options": PER_ISSUE_SORT_OPTIONS,
         },
     )
 

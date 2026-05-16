@@ -2,6 +2,10 @@
 {% block title %}{{ title }} — all issues{% endblock %}
 {% block content %}
 
+{%- macro title_url(sort_=None, per_page_=None, page_=1) -%}
+/magazines/{{ title|urlencode }}?q={{ q|urlencode }}&sort={{ sort_ or sort }}&per_page={{ per_page_ or per_page }}&page={{ page_ }}
+{%- endmacro -%}
+
 {# ─────────────────────── header ─────────────────────── #}
 <section class="grid grid-cols-12 gap-x-8 gap-y-4 pb-8 items-end">
   <div class="col-span-12 md:col-span-9">
@@ -78,6 +82,31 @@
   </div>
 
   {% if results %}
+  {# ─────────────────────── sort + page-size controls ─────────────────────── #}
+  <div class="mb-6 flex flex-wrap items-baseline gap-x-6 gap-y-2 caps">
+    <div class="caps-soft">sort</div>
+    {% for s in sort_options %}
+      {% if s == sort %}
+        <span>{{ s }}</span>
+      {% else %}
+        <a class="accent" href="{{ title_url(sort_=s) }}">{{ s }}</a>
+      {% endif %}
+      {% if not loop.last %}<span class="ornament caps-soft">·</span>{% endif %}
+    {% endfor %}
+
+    <span class="caps-soft mx-2">|</span>
+
+    <div class="caps-soft">page size</div>
+    {% for pp in per_page_options %}
+      {% if pp == per_page %}
+        <span>{{ pp }}</span>
+      {% else %}
+        <a class="accent" href="{{ title_url(per_page_=pp) }}">{{ pp }}</a>
+      {% endif %}
+      {% if not loop.last %}<span class="ornament caps-soft">·</span>{% endif %}
+    {% endfor %}
+  </div>
+
   <ul>
     {% for r in results %}
     <li>
@@ -110,15 +139,17 @@
   <nav class="mt-10 flex items-baseline justify-between caps">
     <div>
       {% if page > 1 %}
-        <a class="accent"
-           href="/magazines/{{ title|urlencode }}?q={{ q|urlencode }}&page={{ page - 1 }}">← previous</a>
+        <a class="accent" href="{{ title_url(page_=page - 1) }}">← previous</a>
       {% endif %}
     </div>
     <div class="caps-soft">page {{ page }}</div>
     <div>
       {% if has_more %}
-        <a class="accent"
-           href="/magazines/{{ title|urlencode }}?q={{ q|urlencode }}&page={{ page + 1 }}">next →</a>
+        <a class="accent" href="{{ title_url(page_=page + 1) }}">next →</a>
+      {% elif at_result_cap %}
+        <span class="caps-soft italic">
+          showing top {{ "{:,}".format(result_cap) }} matches — refine your query
+        </span>
       {% endif %}
     </div>
   </nav>

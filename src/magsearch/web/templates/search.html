@@ -2,6 +2,11 @@
 {% block title %}Search · {{ q }}{% endblock %}
 {% block content %}
 
+{# Build a search URL with the current params, overriding individually. #}
+{%- macro search_url(view_=None, sort_=None, per_page_=None, page_=1) -%}
+/search?q={{ q|urlencode }}&view={{ view_ or view }}&sort={{ sort_ or sort }}&per_page={{ per_page_ or per_page }}&page={{ page_ }}
+{%- endmacro -%}
+
 {# ─────────────────────── header ─────────────────────── #}
 <section class="grid grid-cols-12 gap-x-8 pb-6 items-end">
   <div class="col-span-12 md:col-span-9">
@@ -20,9 +25,9 @@
   </div>
   <div class="col-span-12 md:col-span-3 md:text-right">
     {% if view == "flat" %}
-      <a class="caps accent" href="/search?q={{ q|urlencode }}">← back to grouped view</a>
+      <a class="caps accent" href="{{ search_url(view_='grouped') }}">← back to grouped view</a>
     {% elif results %}
-      <a class="caps accent" href="/search?q={{ q|urlencode }}&view=flat">show all matching pages →</a>
+      <a class="caps accent" href="{{ search_url(view_='flat') }}">show all matching pages →</a>
     {% endif %}
   </div>
 </section>
@@ -30,6 +35,31 @@
 <div class="rule-thick"></div>
 
 {% if results %}
+
+  {# ─────────────────────── sort + page-size controls ─────────────────────── #}
+  <div class="mt-6 flex flex-wrap items-baseline gap-x-6 gap-y-2 caps">
+    <div class="caps-soft">sort</div>
+    {% for s in sort_options %}
+      {% if s == sort %}
+        <span>{{ s }}</span>
+      {% else %}
+        <a class="accent" href="{{ search_url(sort_=s) }}">{{ s }}</a>
+      {% endif %}
+      {% if not loop.last %}<span class="ornament caps-soft">·</span>{% endif %}
+    {% endfor %}
+
+    <span class="caps-soft mx-2">|</span>
+
+    <div class="caps-soft">page size</div>
+    {% for pp in per_page_options %}
+      {% if pp == per_page %}
+        <span>{{ pp }}</span>
+      {% else %}
+        <a class="accent" href="{{ search_url(per_page_=pp) }}">{{ pp }}</a>
+      {% endif %}
+      {% if not loop.last %}<span class="ornament caps-soft">·</span>{% endif %}
+    {% endfor %}
+  </div>
 
   {# ─────────────────────── grouped view ─────────────────────── #}
   {% if view != "flat" %}
@@ -106,15 +136,17 @@
   <nav class="mt-10 flex items-baseline justify-between caps">
     <div>
       {% if page > 1 %}
-        <a class="accent"
-           href="/search?q={{ q|urlencode }}&view={{ view }}&page={{ page - 1 }}">← previous</a>
+        <a class="accent" href="{{ search_url(page_=page - 1) }}">← previous</a>
       {% endif %}
     </div>
     <div class="caps-soft">page {{ page }}</div>
     <div>
       {% if has_more %}
-        <a class="accent"
-           href="/search?q={{ q|urlencode }}&view={{ view }}&page={{ page + 1 }}">next →</a>
+        <a class="accent" href="{{ search_url(page_=page + 1) }}">next →</a>
+      {% elif at_result_cap %}
+        <span class="caps-soft italic">
+          showing top {{ "{:,}".format(result_cap) }} {{ "matches" if view == "flat" else "magazines" }} — refine your query
+        </span>
       {% endif %}
     </div>
   </nav>

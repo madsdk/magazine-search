@@ -60,81 +60,147 @@ class MagazineMatch:
     match_count: int
 
 
-_SEARCH_SQL = text("""
-    SELECT
-        magazines.id               AS magazine_id,
-        magazines.title            AS magazine_title,
-        magazines.issue            AS magazine_issue,
-        magazines.publication_date AS magazine_date,
-        pages.page_number          AS page_number,
-        pages.thumb_path           AS thumb_path,
-        snippet(pages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
-    FROM pages_fts
-    JOIN pages     ON pages_fts.rowid = pages.id
-    JOIN magazines ON pages.magazine_id = magazines.id
-    WHERE pages_fts MATCH :q
-    ORDER BY rank, magazines.title, magazines.publication_date, pages.page_number
-    LIMIT :limit OFFSET :offset
-""").bindparams(bindparam("q"), bindparam("limit"), bindparam("offset"))
+# ─────────────────────────── sort whitelists ───────────────────────────
+# ORDER BY can't be bind-parameterized, so we pre-build one text() per
+# allowed sort key and look it up by validated enum value.
+
+FLAT_SORT_OPTIONS = ("rank", "newest", "oldest")
+PER_ISSUE_SORT_OPTIONS = ("rank", "page")
+DEFAULT_FLAT_SORT = "rank"
+DEFAULT_PER_ISSUE_SORT = "rank"
 
 
-_SEARCH_IN_MAGAZINE_SQL = text("""
-    SELECT
-        magazines.id               AS magazine_id,
-        magazines.title            AS magazine_title,
-        magazines.issue            AS magazine_issue,
-        magazines.publication_date AS magazine_date,
-        pages.page_number          AS page_number,
-        pages.thumb_path           AS thumb_path,
-        snippet(pages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
-    FROM pages_fts
-    JOIN pages     ON pages_fts.rowid = pages.id
-    JOIN magazines ON pages.magazine_id = magazines.id
-    WHERE pages_fts MATCH :q AND pages.magazine_id = :magazine_id
-    ORDER BY rank, pages.page_number
-    LIMIT :limit OFFSET :offset
-""").bindparams(
-    bindparam("q"), bindparam("magazine_id"), bindparam("limit"), bindparam("offset")
-)
+_FLAT_ORDER_CLAUSES = {
+    "rank":   "rank, magazines.publication_date ASC, magazines.title, pages.page_number",
+    "newest": "magazines.publication_date DESC, rank, pages.page_number",
+    "oldest": "magazines.publication_date ASC, rank, pages.page_number",
+}
+
+_PER_TITLE_ORDER_CLAUSES = _FLAT_ORDER_CLAUSES  # same shape
+
+_PER_ISSUE_ORDER_CLAUSES = {
+    "rank": "rank, pages.page_number",
+    "page": "pages.page_number",
+}
+
+_GROUPED_ORDER_CLAUSES = {
+    "rank":   "best_rank, MIN(magazines.publication_date) ASC, magazines.title",
+    "newest": "MAX(magazines.publication_date) DESC, best_rank",
+    "oldest": "MIN(magazines.publication_date) ASC, best_rank",
+}
 
 
-_SEARCH_IN_MAGAZINE_TITLE_SQL = text("""
-    SELECT
-        magazines.id               AS magazine_id,
-        magazines.title            AS magazine_title,
-        magazines.issue            AS magazine_issue,
-        magazines.publication_date AS magazine_date,
-        pages.page_number          AS page_number,
-        pages.thumb_path           AS thumb_path,
-        snippet(pages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
-    FROM pages_fts
-    JOIN pages     ON pages_fts.rowid = pages.id
-    JOIN magazines ON pages.magazine_id = magazines.id
-    WHERE pages_fts MATCH :q AND magazines.title = :title
-    ORDER BY rank, magazines.publication_date, pages.page_number
-    LIMIT :limit OFFSET :offset
-""").bindparams(
-    bindparam("q"), bindparam("title"), bindparam("limit"), bindparam("offset")
-)
+def _build_flat_sql() -> dict[str, "text"]:
+    base = """
+        SELECT
+            magazines.id               AS magazine_id,
+            magazines.title            AS magazine_title,
+            magazines.issue            AS magazine_issue,
+            magazines.publication_date AS magazine_date,
+            pages.page_number          AS page_number,
+            pages.thumb_path           AS thumb_path,
+            snippet(pages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
+        FROM pages_fts
+        JOIN pages     ON pages_fts.rowid = pages.id
+        JOIN magazines ON pages.magazine_id = magazines.id
+        WHERE pages_fts MATCH :q
+        ORDER BY {clause}
+        LIMIT :limit OFFSET :offset
+    """
+    return {
+        sort: text(base.format(clause=clause)).bindparams(
+            bindparam("q"), bindparam("limit"), bindparam("offset")
+        )
+        for sort, clause in _FLAT_ORDER_CLAUSES.items()
+    }
 
 
-_SEARCH_MAGAZINES_SQL = text("""
-    SELECT
-        magazines.id               AS magazine_id,
-        magazines.title            AS magazine_title,
-        magazines.issue            AS magazine_issue,
-        magazines.publication_date AS magazine_date,
-        magazines.cover_path       AS cover_path,
-        COUNT(*)                   AS match_count,
-        MIN(pages_fts.rank)        AS best_rank
-    FROM pages_fts
-    JOIN pages     ON pages_fts.rowid = pages.id
-    JOIN magazines ON pages.magazine_id = magazines.id
-    WHERE pages_fts MATCH :q
-    GROUP BY magazines.id
-    ORDER BY best_rank, magazines.title, magazines.publication_date
-    LIMIT :limit OFFSET :offset
-""").bindparams(bindparam("q"), bindparam("limit"), bindparam("offset"))
+def _build_per_issue_sql() -> dict[str, "text"]:
+    base = """
+        SELECT
+            magazines.id               AS magazine_id,
+            magazines.title            AS magazine_title,
+            magazines.issue            AS magazine_issue,
+            magazines.publication_date AS magazine_date,
+            pages.page_number          AS page_number,
+            pages.thumb_path           AS thumb_path,
+            snippet(pages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
+        FROM pages_fts
+        JOIN pages     ON pages_fts.rowid = pages.id
+        JOIN magazines ON pages.magazine_id = magazines.id
+        WHERE pages_fts MATCH :q AND pages.magazine_id = :magazine_id
+        ORDER BY {clause}
+        LIMIT :limit OFFSET :offset
+    """
+    return {
+        sort: text(base.format(clause=clause)).bindparams(
+            bindparam("q"),
+            bindparam("magazine_id"),
+            bindparam("limit"),
+            bindparam("offset"),
+        )
+        for sort, clause in _PER_ISSUE_ORDER_CLAUSES.items()
+    }
+
+
+def _build_per_title_sql() -> dict[str, "text"]:
+    base = """
+        SELECT
+            magazines.id               AS magazine_id,
+            magazines.title            AS magazine_title,
+            magazines.issue            AS magazine_issue,
+            magazines.publication_date AS magazine_date,
+            pages.page_number          AS page_number,
+            pages.thumb_path           AS thumb_path,
+            snippet(pages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
+        FROM pages_fts
+        JOIN pages     ON pages_fts.rowid = pages.id
+        JOIN magazines ON pages.magazine_id = magazines.id
+        WHERE pages_fts MATCH :q AND magazines.title = :title
+        ORDER BY {clause}
+        LIMIT :limit OFFSET :offset
+    """
+    return {
+        sort: text(base.format(clause=clause)).bindparams(
+            bindparam("q"),
+            bindparam("title"),
+            bindparam("limit"),
+            bindparam("offset"),
+        )
+        for sort, clause in _PER_TITLE_ORDER_CLAUSES.items()
+    }
+
+
+def _build_grouped_sql() -> dict[str, "text"]:
+    base = """
+        SELECT
+            magazines.id               AS magazine_id,
+            magazines.title            AS magazine_title,
+            magazines.issue            AS magazine_issue,
+            magazines.publication_date AS magazine_date,
+            magazines.cover_path       AS cover_path,
+            COUNT(*)                   AS match_count,
+            MIN(pages_fts.rank)        AS best_rank
+        FROM pages_fts
+        JOIN pages     ON pages_fts.rowid = pages.id
+        JOIN magazines ON pages.magazine_id = magazines.id
+        WHERE pages_fts MATCH :q
+        GROUP BY magazines.id
+        ORDER BY {clause}
+        LIMIT :limit OFFSET :offset
+    """
+    return {
+        sort: text(base.format(clause=clause)).bindparams(
+            bindparam("q"), bindparam("limit"), bindparam("offset")
+        )
+        for sort, clause in _GROUPED_ORDER_CLAUSES.items()
+    }
+
+
+_FLAT_SQL_BY_SORT = _build_flat_sql()
+_PER_ISSUE_SQL_BY_SORT = _build_per_issue_sql()
+_PER_TITLE_SQL_BY_SORT = _build_per_title_sql()
+_GROUPED_SQL_BY_SORT = _build_grouped_sql()
 
 
 def _coerce_date(value: object) -> date | None:
@@ -157,12 +223,24 @@ def _row_to_result(r) -> SearchResult:
     )
 
 
-def search(session: Session, raw_query: str, *, offset: int, limit: int) -> list[SearchResult]:
+def _pick(d: dict, key: str, default: str):
+    return d.get(key, d[default])
+
+
+def search(
+    session: Session,
+    raw_query: str,
+    *,
+    offset: int,
+    limit: int,
+    sort: str = DEFAULT_FLAT_SORT,
+) -> list[SearchResult]:
     q = sanitize_query(raw_query)
     if not q:
         return []
+    stmt = _pick(_FLAT_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)
     try:
-        rows = session.execute(_SEARCH_SQL, {"q": q, "limit": limit, "offset": offset}).all()
+        rows = session.execute(stmt, {"q": q, "limit": limit, "offset": offset}).all()
     except Exception:
         return []
     return [_row_to_result(r) for r in rows]
@@ -175,13 +253,15 @@ def search_in_magazine(
     *,
     offset: int,
     limit: int,
+    sort: str = DEFAULT_PER_ISSUE_SORT,
 ) -> list[SearchResult]:
     q = sanitize_query(raw_query)
     if not q:
         return []
+    stmt = _pick(_PER_ISSUE_SQL_BY_SORT, sort, DEFAULT_PER_ISSUE_SORT)
     try:
         rows = session.execute(
-            _SEARCH_IN_MAGAZINE_SQL,
+            stmt,
             {"q": q, "magazine_id": magazine_id, "limit": limit, "offset": offset},
         ).all()
     except Exception:
@@ -196,13 +276,15 @@ def search_in_magazine_title(
     *,
     offset: int,
     limit: int,
+    sort: str = DEFAULT_FLAT_SORT,
 ) -> list[SearchResult]:
     q = sanitize_query(raw_query)
     if not q:
         return []
+    stmt = _pick(_PER_TITLE_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)
     try:
         rows = session.execute(
-            _SEARCH_IN_MAGAZINE_TITLE_SQL,
+            stmt,
             {"q": q, "title": title, "limit": limit, "offset": offset},
         ).all()
     except Exception:
@@ -211,14 +293,20 @@ def search_in_magazine_title(
 
 
 def search_magazines(
-    session: Session, raw_query: str, *, offset: int, limit: int
+    session: Session,
+    raw_query: str,
+    *,
+    offset: int,
+    limit: int,
+    sort: str = DEFAULT_FLAT_SORT,
 ) -> list[MagazineMatch]:
     q = sanitize_query(raw_query)
     if not q:
         return []
+    stmt = _pick(_GROUPED_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)
     try:
         rows = session.execute(
-            _SEARCH_MAGAZINES_SQL, {"q": q, "limit": limit, "offset": offset}
+            stmt, {"q": q, "limit": limit, "offset": offset}
         ).all()
     except Exception:
         return []
