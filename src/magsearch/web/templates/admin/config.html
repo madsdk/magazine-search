@@ -1,0 +1,32 @@
+{% extends "admin/admin_base.html" %}
+
+{% block admin_content %}
+<h2 class="display text-3xl mb-6">Settings</h2>
+
+<form method="post" action="/admin/config" class="space-y-8 max-w-xl">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  {% for key, meta in registry.items() %}
+    <div>
+      <label class="caps caps-soft block mb-1">{{ meta.label }}</label>
+      {% if meta.type == "bool" %}
+        <label class="inline-flex items-center gap-3">
+          <input type="checkbox" name="{{ key }}" value="1"
+                 {% if values[key] %}checked{% endif %}>
+          <span class="link-italic">{{ meta.help or "" }}</span>
+        </label>
+      {% elif meta.type == "int" %}
+        <input type="number" name="{{ key }}" value="{{ values[key] }}" class="field-small w-full">
+        {% if meta.help %}<p class="link-italic mt-1">{{ meta.help }}</p>{% endif %}
+      {% else %}
+        <input type="text" name="{{ key }}" value="{{ values[key] }}" class="field-small w-full">
+        {% if meta.help %}<p class="link-italic mt-1">{{ meta.help }}</p>{% endif %}
+      {% endif %}
+    </div>
+  {% endfor %}
+
+  <div class="pt-2">
+    <button type="submit" class="btn-editorial">Save settings</button>
+  </div>
+</form>
+{% endblock %}

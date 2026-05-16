@@ -8,6 +8,26 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(unique=True, index=True)
+    password_hash: Mapped[str]
+    is_admin: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime]
+    last_login_at: Mapped[datetime | None]
+
+
+class ConfigEntry(Base):
+    __tablename__ = "app_config"
+
+    key: Mapped[str] = mapped_column(primary_key=True)
+    value: Mapped[str]
+    value_type: Mapped[str]
+    updated_at: Mapped[datetime]
+
+
 class Magazine(Base):
     __tablename__ = "magazines"
 

@@ -1,0 +1,39 @@
+{% extends "admin/admin_base.html" %}
+
+{% block admin_content %}
+<div class="mb-6 flex items-baseline justify-between">
+  <h2 class="display text-3xl">Users</h2>
+  <a href="/admin/users/new" class="mark-go">add user ↵</a>
+</div>
+
+<table class="w-full text-left">
+  <thead>
+    <tr class="caps caps-soft">
+      <th class="py-2">Username</th>
+      <th class="py-2">Role</th>
+      <th class="py-2">Last login</th>
+      <th class="py-2"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for u in users %}
+      <tr class="border-t border-[var(--ink)] border-opacity-20">
+        <td class="py-3">{{ u.username }}</td>
+        <td class="py-3">{% if u.is_admin %}<span class="tag tag-active">admin</span>{% else %}user{% endif %}</td>
+        <td class="py-3">{{ u.last_login_at.strftime("%Y-%m-%d %H:%M") if u.last_login_at else "—" }}</td>
+        <td class="py-3 text-right">
+          <a href="/admin/users/{{ u.id }}/edit" class="link-italic">edit</a>
+          &nbsp;·&nbsp;
+          <form method="post" action="/admin/users/{{ u.id }}/delete" class="inline"
+                onsubmit="return confirm('Delete user {{ u.username }}?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="link-italic accent" type="submit">delete</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="py-6 link-italic">No users.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

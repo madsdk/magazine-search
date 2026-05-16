@@ -1,6 +1,6 @@
 import sys
 import time
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -8,16 +8,21 @@ import typer
 import uvicorn
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import select
 
 from magsearch.db import make_engine, make_session_factory, session_scope
 from magsearch.importer import ImportError as MagImportError, import_bundle
 from magsearch.ingest.ocr import FakeOCREngine
 from magsearch.ingest.pipeline import IngestOptions, IngestPipeline
+from magsearch.models import User
 from magsearch.settings import get_settings
+from magsearch.web.auth import hash_password, normalize_username
 
 app = typer.Typer(no_args_is_help=True, help="Magazine search.")
 db_app = typer.Typer(no_args_is_help=True, help="Database commands.")
+admin_app = typer.Typer(no_args_is_help=True, help="Admin user management.")
 app.add_typer(db_app, name="db")
+app.add_typer(admin_app, name="admin")
 
 
 def _make_progress_reporter():
@@ -141,3 +146,81 @@ def db_upgrade(revision: str = typer.Argument("head")) -> None:
 @db_app.command("downgrade")
 def db_downgrade(revision: str = typer.Argument("-1")) -> None:
     command.downgrade(_alembic_cfg(), revision)
+
+
+def _open_session():
+    settings = get_settings()
+    return make_session_factory(make_engine(settings.database_url))
+
+
+@admin_app.command("create")
+def admin_create(
+    username: Annotated[str, typer.Argument(help="Username for the new admin.")],
+    password: Annotated[
+        str,
+        typer.Option(
+            "--password",
+            prompt=True,
+            confirmation_prompt=True,
+            hide_input=True,
+            help="Password (prompted if not given).",
+        ),
+    ],
+) -> None:
+    """Create a new administrator account."""
+    factory = _open_session()
+    normalized = normalize_username(username)
+    if not normalized:
+        typer.echo("username must not be empty", err=True)
+        raise typer.Exit(code=2)
+    with session_scope(factory) as s:
+        if s.scalar(select(User).where(User.username == normalized)):
+            typer.echo(f"user '{normalized}' already exists", err=True)
+            raise typer.Exit(code=1)
+        s.add(User(
+            username=normalized,
+            password_hash=hash_password(password),
+            is_admin=True,
+            created_at=datetime.utcnow(),
+            last_login_at=None,
+        ))
+    typer.echo(f"admin user '{normalized}' created")
+
+
+@admin_app.command("list")
+def admin_list() -> None:
+    """List all users."""
+    factory = _open_session()
+    with session_scope(factory) as s:
+        users = s.scalars(select(User).order_by(User.username)).all()
+        if not users:
+            typer.echo("(no users)")
+            return
+        for u in users:
+            flag = "admin" if u.is_admin else "user"
+            typer.echo(f"{u.username}\t{flag}")
+
+
+@admin_app.command("reset-password")
+def admin_reset_password(
+    username: Annotated[str, typer.Argument()],
+    password: Annotated[
+        str,
+        typer.Option(
+            "--password",
+            prompt=True,
+            confirmation_prompt=True,
+            hide_input=True,
+        ),
+    ],
+) -> None:
+    """Reset a user's password from the CLI."""
+    factory = _open_session()
+    normalized = normalize_username(username)
+    with session_scope(factory) as s:
+        user = s.scalar(select(User).where(User.username == normalized))
+        if user is None:
+            typer.echo(f"user '{normalized}' not found", err=True)
+            raise typer.Exit(code=1)
+        user.password_hash = hash_password(password)
+    typer.echo(f"password reset for '{normalized}'")

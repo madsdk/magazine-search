@@ -1,4 +1,5 @@
 import html
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +13,24 @@ from magsearch.models import Magazine, Page
 
 class ImportError(Exception):
     """Raised when a bundle cannot be imported safely."""
+
+
+def delete_bundle_dir(bundles_root: Path, magazine_id: str) -> None:
+    """Delete the on-disk bundle for `magazine_id`, with a path-traversal guard.
+
+    Safe to call when the directory does not exist.
+    """
+    root = Path(bundles_root).resolve()
+    target = (root / magazine_id).resolve()
+    # Guard: target must be a proper child of root.
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise ValueError(f"refusing to delete outside bundles root: {target}")
+    if target == root:
+        raise ValueError("refusing to delete the bundles root itself")
+    if target.exists():
+        shutil.rmtree(target)
 
 
 def import_bundle(bundle_dir: Path, session: Session) -> str:

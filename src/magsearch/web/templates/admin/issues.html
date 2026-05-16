@@ -1,0 +1,42 @@
+{% extends "admin/admin_base.html" %}
+
+{% block admin_content %}
+<form method="get" action="/admin/issues" class="mb-8 flex items-baseline gap-3">
+  <input type="text" name="q" value="{{ q | default('', true) }}"
+         placeholder="filter by title or issue…" class="field-small w-80">
+  <button class="mark-go">go ↵</button>
+</form>
+
+<table class="w-full text-left">
+  <thead>
+    <tr class="caps caps-soft">
+      <th class="py-2">Title</th>
+      <th class="py-2">Issue</th>
+      <th class="py-2">Date</th>
+      <th class="py-2">Publisher</th>
+      <th class="py-2"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for m in issues %}
+      <tr class="border-t border-[var(--ink)] border-opacity-20">
+        <td class="py-3">{{ m.title }}</td>
+        <td class="py-3">{{ m.issue or "—" }}</td>
+        <td class="py-3">{{ m.publication_date or "—" }}</td>
+        <td class="py-3">{{ m.publisher or "—" }}</td>
+        <td class="py-3 text-right">
+          <a href="/admin/issues/{{ m.id }}/edit" class="link-italic">edit</a>
+          &nbsp;·&nbsp;
+          <form method="post" action="/admin/issues/{{ m.id }}/delete" class="inline"
+                onsubmit="return confirm('Delete {{ m.title }}{% if m.issue %} — {{ m.issue }}{% endif %} and its on-disk files?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="link-italic accent" type="submit">delete</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="py-6 link-italic">No issues.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

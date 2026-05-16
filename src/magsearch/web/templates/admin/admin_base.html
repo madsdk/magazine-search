@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Admin · The Archive{% endblock %}
+
+{% block content %}
+<div class="mb-10">
+  <p class="caps caps-soft">Editorial Desk</p>
+  <h1 class="display text-5xl">Administration</h1>
+  <div class="rule mt-4"></div>
+  <nav class="caps flex flex-wrap gap-6 mt-4">
+    <a href="/admin">Dashboard</a>
+    <a href="/admin/issues">Issues</a>
+    <a href="/admin/users">Users</a>
+    <a href="/admin/config">Settings</a>
+    <span class="flex-1"></span>
+    {% if current_user() %}
+      <span class="caps-soft">signed in as <em class="link-italic">{{ current_user().username }}</em></span>
+      <form method="post" action="/logout" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="mark-go" type="submit">sign out ↵</button>
+      </form>
+    {% endif %}
+  </nav>
+  <div class="rule-hair mt-4"></div>
+</div>
+
+{% block admin_content %}{% endblock %}
+{% endblock %}

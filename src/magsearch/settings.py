@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./data/magsearch.db"
     bundles_dir: Path = Path("./data/bundles")
+    session_secret: str = ""
 
 
 def get_settings() -> Settings:

@@ -1,0 +1,42 @@
+{% extends "admin/admin_base.html" %}
+
+{% block admin_content %}
+{% set editing = user is not none %}
+<p class="caps caps-soft mb-2">{{ "Editing user" if editing else "New user" }}</p>
+<h2 class="display text-4xl mb-6">{{ user.username if editing else "Add a user" }}</h2>
+
+{% if error %}<p class="caps accent mb-4">{{ error }}</p>{% endif %}
+
+<form method="post"
+      action="{{ '/admin/users/' ~ user.id ~ '/edit' if editing else '/admin/users/new' }}"
+      class="space-y-6 max-w-xl">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div>
+    <label class="caps caps-soft block mb-1">Username</label>
+    <input type="text" name="username" required class="field-small w-full"
+           value="{{ user.username if editing else '' }}">
+  </div>
+
+  <div>
+    <label class="caps caps-soft block mb-1">
+      Password{% if editing %} <span class="link-italic">(leave blank to keep current)</span>{% endif %}
+    </label>
+    <input type="password" name="password" class="field-small w-full"
+           {% if not editing %}required{% endif %} autocomplete="new-password">
+  </div>
+
+  <div>
+    <label class="caps caps-soft inline-flex items-center gap-3">
+      <input type="checkbox" name="is_admin" value="1"
+             {% if editing and user.is_admin %}checked{% endif %}>
+      Administrator
+    </label>
+  </div>
+
+  <div class="pt-2 flex items-baseline gap-6">
+    <button type="submit" class="btn-editorial">{{ "Save changes" if editing else "Create user" }}</button>
+    <a href="/admin/users" class="link-italic">cancel</a>
+  </div>
+</form>
+{% endblock %}
