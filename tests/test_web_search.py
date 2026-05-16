@@ -229,16 +229,18 @@ def test_search_match_phrase_enforces_order(app_client):
 
 
 def test_search_preserves_match_options_in_links(app_client):
+    # Phrase=0 keeps match_all=0 observable in links. (Phrase implies AND,
+    # so match_all=0 with phrase=1 gets normalized to match_all=1.)
     client, _ = app_client
     resp = client.get(
         "/search",
         params={"q": "synthesizer", "view": "flat",
-                "match_all": 0, "match_phrase": 1},
+                "match_all": 0, "match_phrase": 0},
     )
     assert resp.status_code == 200
     # Pagination / sort / view-toggle links must carry the match options.
     assert "match_all=0" in resp.text
-    assert "match_phrase=1" in resp.text
+    assert "match_phrase=0" in resp.text
 
 
 def test_magazine_search_form_renders_match_checkboxes(app_client):
@@ -251,14 +253,16 @@ def test_magazine_search_form_renders_match_checkboxes(app_client):
 
 
 def test_magazines_title_search_preserves_match_options(app_client):
+    # Use phrase=0 so match_all=0 stays observable. (Phrase implies AND, so
+    # match_all=0 with phrase=1 gets normalized to match_all=1.)
     client, _ = app_client
     resp = client.get(
         "/magazines/Byte",
-        params={"q": "synthesizer", "match_all": 0, "match_phrase": 1},
+        params={"q": "synthesizer", "match_all": 0, "match_phrase": 0},
     )
     assert resp.status_code == 200
     assert "match_all=0" in resp.text
-    assert "match_phrase=1" in resp.text
+    assert "match_phrase=0" in resp.text
 
 
 def test_magazine_form_checkbox_round_trip(app_client):
@@ -267,25 +271,55 @@ def test_magazine_form_checkbox_round_trip(app_client):
     # repeated params. This test guards that ordering: if the hidden input
     # ends up after the checkbox, a checked box would arrive as 0.
     client, _ = app_client
-    # Checked match_phrase, unchecked match_all — exactly what a browser
-    # would submit from the per-issue form in that state.
+    # Checked match_all, unchecked match_phrase — exactly what a browser
+    # would submit from the per-issue form in that state. (Can't use the
+    # inverse — phrase implies all-terms, so match_all=0 with phrase=1
+    # gets normalized.)
     resp = client.get(
         "/magazine/byte-1985-12"
         "?q=synthesizer"
-        "&match_all=0"               # hidden, no checkbox value
-        "&match_phrase=0&match_phrase=1"  # hidden then checkbox
+        "&match_all=0&match_all=1"        # hidden then checkbox
+        "&match_phrase=0"                 # hidden, unchecked
     )
     assert resp.status_code == 200
-    # match_all should read as False, match_phrase as True. Verify via the
-    # rendered checkbox state.
     import re
-    # Find the type=checkbox input for each name, with attribute order tolerant.
     ma = re.search(r'<input\s+type="checkbox"[^>]*name="match_all"[^>]*>', resp.text)
     assert ma is not None
-    assert "checked" not in ma.group(0)
+    assert "checked" in ma.group(0)
     mp = re.search(r'<input\s+type="checkbox"[^>]*name="match_phrase"[^>]*>', resp.text)
     assert mp is not None
-    assert "checked" in mp.group(0)
+    assert "checked" not in mp.group(0)
+
+
+def test_search_phrase_forces_all_terms_checkbox_on(app_client):
+    # match_phrase=1 implies match_all=1; even if the URL explicitly sets
+    # match_all=0, the rendered all-terms checkbox should appear checked
+    # so the UI never contradicts the actual search semantics.
+    client, _ = app_client
+    resp = client.get(
+        "/search",
+        params={"q": "synthesizer", "match_all": 0, "match_phrase": 1,
+                "view": "flat"},
+    )
+    assert resp.status_code == 200
+    # The pagination/sort macro should now emit match_all=1 (forced).
+    assert "match_all=1" in resp.text
+    assert "match_all=0" not in resp.text
+
+
+def test_magazine_phrase_forces_all_terms_checkbox_on(app_client):
+    client, _ = app_client
+    resp = client.get(
+        "/magazine/byte-1985-12",
+        params={"q": "synthesizer", "match_all": 0, "match_phrase": 1},
+    )
+    assert resp.status_code == 200
+    import re
+    ma = re.search(
+        r'<input\s+type="checkbox"[^>]*name="match_all"[^>]*>', resp.text
+    )
+    assert ma is not None
+    assert "checked" in ma.group(0)
 
 
 def test_magazines_title_form_checkbox_round_trip(app_client):

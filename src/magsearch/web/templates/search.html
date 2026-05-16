@@ -65,7 +65,12 @@
     <span class="caps-soft mx-2">|</span>
 
     <div class="caps-soft">match</div>
-    {% if match_all %}
+    {% if match_phrase %}
+      {# Phrase implies all-terms; toggle is locked. #}
+      <span class="opacity-50">all terms</span>
+      <span class="ornament caps-soft">·</span>
+      <span class="opacity-50">any term</span>
+    {% elif match_all %}
       <span>all terms</span>
       <span class="ornament caps-soft">·</span>
       <a class="accent" href="{{ search_url(match_all_=0) }}">any term</a>

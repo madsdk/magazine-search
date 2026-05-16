@@ -91,8 +91,11 @@ def search_route(
         view = "grouped"
     sort = _validate_sort(sort, FLAT_SORT_OPTIONS, DEFAULT_FLAT_SORT)
     per_page = _validate_per_page(per_page)
-    match_all_b = bool(match_all)
     match_phrase_b = bool(match_phrase)
+    # Phrase mode implies AND: you can't find every word in order unless
+    # every word is on the page. Lock match_all on whenever phrase is on
+    # so the rendered checkbox state never contradicts the search behavior.
+    match_all_b = bool(match_all) or match_phrase_b
     result_cap = FLAT_RESULT_CAP if view == "flat" else GROUPED_RESULT_CAP
     page, max_page = _clamp_page(page, result_cap, per_page)
 
@@ -185,8 +188,8 @@ def magazine_issues(
 
     sort = _validate_sort(sort, FLAT_SORT_OPTIONS, DEFAULT_FLAT_SORT)
     per_page = _validate_per_page(per_page)
-    match_all_b = bool(match_all)
     match_phrase_b = bool(match_phrase)
+    match_all_b = bool(match_all) or match_phrase_b
 
     results: list | None = None
     has_more = False
@@ -242,8 +245,8 @@ def magazine_detail(
 
     sort = _validate_sort(sort, PER_ISSUE_SORT_OPTIONS, DEFAULT_PER_ISSUE_SORT)
     per_page = _validate_per_page(per_page)
-    match_all_b = bool(match_all)
     match_phrase_b = bool(match_phrase)
+    match_all_b = bool(match_all) or match_phrase_b
 
     results: list | None = None
     has_more = False

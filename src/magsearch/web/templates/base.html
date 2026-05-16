@@ -223,6 +223,13 @@
     object-fit: cover;
     display: block;
   }
+
+  /* Label whose checkbox is locked-on by another option (e.g. all-terms when
+     phrase-mode is on). Greyed and click-suppressed via JS. */
+  label.opt-locked {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 </style>
 </head>
 
@@ -289,6 +296,46 @@
       for (var j = 0; j < twins.length; j++) twins[j].disabled = true;
     }
   }, true);
+
+  // "match in order" implies "all terms must match". When phrase is checked,
+  // force the all-terms checkbox on and visually lock it; when phrase is
+  // unchecked, release the lock.
+  function syncMatchOptions(form) {
+    var phrase = form.querySelector(
+      'input[type="checkbox"][name="match_phrase"]'
+    );
+    var all = form.querySelector(
+      'input[type="checkbox"][name="match_all"]'
+    );
+    if (!phrase || !all) return;
+    if (phrase.checked) {
+      all.checked = true;
+      all.dataset.lockedByPhrase = "1";
+      all.closest("label").classList.add("opt-locked");
+    } else {
+      delete all.dataset.lockedByPhrase;
+      all.closest("label").classList.remove("opt-locked");
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    document
+      .querySelectorAll('input[type="checkbox"][name="match_phrase"]')
+      .forEach(function (cb) {
+        cb.addEventListener("change", function () {
+          syncMatchOptions(cb.form);
+        });
+        if (cb.form) syncMatchOptions(cb.form);
+      });
+    // Prevent toggling the all-terms checkbox while phrase mode locks it.
+    document
+      .querySelectorAll('input[type="checkbox"][name="match_all"]')
+      .forEach(function (cb) {
+        cb.addEventListener("click", function (e) {
+          if (cb.dataset.lockedByPhrase === "1") e.preventDefault();
+        });
+      });
+  });
 </script>
 
 </body>
