@@ -44,24 +44,28 @@ class AuthMiddleware:
         path = scope.get("path", "")
         allowed = self._is_allowed(path)
 
+        # Do all DB work in a tight scope so the pooled connection is released
+        # BEFORE we await the downstream app. Holding a session across
+        # `await self.app(...)` pins one connection per in-flight request and
+        # exhausts the pool under concurrent / slow responses.
         with factory() as db:
             user = db.get(User, user_id) if user_id else None
             if user is not None:
                 db.expunge(user)
-                request.state.current_user = user
-
             if allowed:
-                await self.app(scope, receive, send)
-                return
-
-            try:
-                require_login = get_value(db, "require_login")
-            except Exception:
                 require_login = False
+            else:
+                try:
+                    require_login = get_value(db, "require_login")
+                except Exception:
+                    require_login = False
 
-            if not require_login or user is not None:
-                await self.app(scope, receive, send)
-                return
+        if user is not None:
+            request.state.current_user = user
+
+        if allowed or not require_login or user is not None:
+            await self.app(scope, receive, send)
+            return
 
         target = path
         if scope.get("query_string"):
