@@ -64,8 +64,13 @@
          class="accent">← previous</a>
     {% endif %}
   </div>
-  <a href="/magazine/{{ mag.id }}{% if q %}?q={{ q|urlencode }}{% endif %}"
-     class="caps-soft hover:text-[var(--accent)]">all pages</a>
+  <div class="flex items-baseline gap-4">
+    <a href="/magazine/{{ mag.id }}{% if q %}?q={{ q|urlencode }}{% endif %}"
+       class="caps-soft hover:text-[var(--accent)]">all pages</a>
+    <span class="caps-soft italic hidden md:inline" style="letter-spacing:0.05em;">
+      use ← / → to flip
+    </span>
+  </div>
   <div>
     {% if has_next %}
       <a href="/magazine/{{ mag.id }}/page/{{ page.page_number + 1 }}{% if q %}?q={{ q|urlencode }}{% endif %}"
@@ -73,5 +78,27 @@
     {% endif %}
   </div>
 </nav>
+
+{%- set _qs = ('?q=' ~ q|urlencode) if q else '' -%}
+{%- set _prev_href = ('/magazine/' ~ mag.id ~ '/page/' ~ (page.page_number - 1) ~ _qs) if has_prev else none -%}
+{%- set _next_href = ('/magazine/' ~ mag.id ~ '/page/' ~ (page.page_number + 1) ~ _qs) if has_next else none -%}
+<script>
+  (function () {
+    var prev = {{ _prev_href|tojson }};
+    var next = {{ _next_href|tojson }};
+    document.addEventListener("keydown", function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      var t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key === "ArrowLeft" && prev) {
+        e.preventDefault();
+        window.location.href = prev;
+      } else if (e.key === "ArrowRight" && next) {
+        e.preventDefault();
+        window.location.href = next;
+      }
+    });
+  })();
+</script>
 
 {% endblock %}
