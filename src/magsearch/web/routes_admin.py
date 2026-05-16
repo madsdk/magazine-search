@@ -96,6 +96,48 @@ def issue_edit_submit(
     return RedirectResponse(url="/admin/issues", status_code=303)
 
 
+@router.get("/magazines/{title}/missing-issues", response_class=HTMLResponse)
+def magazine_missing_issues(
+    request: Request, title: str, db: Session = Depends(get_db)
+) -> HTMLResponse:
+    issues = db.scalars(
+        select(Magazine)
+        .where(Magazine.title == title)
+        .order_by(Magazine.publication_date.asc().nullslast())
+    ).all()
+    if not issues:
+        raise HTTPException(status_code=404, detail="magazine not found")
+
+    present: set[int] = set()
+    excluded: list[Magazine] = []
+    for m in issues:
+        raw = (m.issue or "").strip()
+        try:
+            n = int(raw)
+        except ValueError:
+            excluded.append(m)
+            continue
+        if n < 1:
+            excluded.append(m)
+            continue
+        present.add(n)
+
+    max_issue = max(present) if present else None
+    missing = sorted(set(range(1, max_issue + 1)) - present) if max_issue else []
+
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "admin/missing_issues.html",
+        {
+            "title": title,
+            "missing": missing,
+            "max_issue": max_issue,
+            "present_count": len(present),
+            "excluded": excluded,
+        },
+    )
+
+
 @router.post("/issues/{magazine_id}/delete")
 def issue_delete(
     request: Request,

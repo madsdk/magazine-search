@@ -19,6 +19,12 @@
   <div class="col-span-12 md:col-span-3 md:text-right caps caps-soft">
     <span class="accent display text-3xl" style="font-variation-settings:'opsz' 60;">{{ issues|length }}</span>
     <span>issue{% if issues|length != 1 %}s{% endif %} on file</span>
+    {% if current_user() and current_user().is_admin %}
+      <div class="mt-2">
+        <a href="/admin/magazines/{{ title|urlencode }}/missing-issues"
+           class="link-italic accent">missing issues →</a>
+      </div>
+    {% endif %}
   </div>
 </section>
 

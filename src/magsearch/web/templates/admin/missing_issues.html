@@ -1,0 +1,73 @@
+{% extends "admin/admin_base.html" %}
+
+{% block admin_content %}
+<div class="mb-6 caps caps-soft">
+  <a href="/magazines/{{ title|urlencode }}" class="hover:text-[var(--accent)]">← back to {{ title }}</a>
+</div>
+
+<h2 class="display text-4xl mb-2">
+  {{ title }} <span class="display-italic">— missing issues</span>
+</h2>
+
+{% if max_issue %}
+  <p class="caps caps-soft mb-8">
+    <span class="accent">{{ present_count }}</span> on file
+    <span class="ornament">·</span>
+    highest <span class="accent">№ {{ max_issue }}</span>
+    <span class="ornament">·</span>
+    <span class="accent">{{ missing|length }}</span>
+    missing in range 1–{{ max_issue }}
+  </p>
+
+  {% if missing %}
+    <section class="py-4">
+      <ul class="flex flex-wrap gap-x-4 gap-y-2 font-serif text-2xl">
+        {% for n in missing %}
+          <li>№ {{ n }}{% if not loop.last %}<span class="caps-soft">,</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% else %}
+    <div class="py-12 text-center">
+      <div class="ornament text-4xl">¶</div>
+      <p class="display italic text-2xl mt-3">No gaps — every issue from 1 to {{ max_issue }} is on file.</p>
+    </div>
+  {% endif %}
+{% else %}
+  <div class="py-12 text-center">
+    <div class="ornament text-4xl">¶</div>
+    <p class="display italic text-2xl mt-3">Cannot compute gaps.</p>
+    <p class="italic text-[var(--ink-soft)] mt-2">
+      No issues for this title have a numeric <code>issue</code> value.
+    </p>
+  </div>
+{% endif %}
+
+{% if excluded %}
+  <div class="rule-hair mt-10 mb-6"></div>
+  <h3 class="caps mb-4">Not counted ({{ excluded|length }})</h3>
+  <p class="caps caps-soft mb-4">
+    These issues have a blank or non-numeric <code>issue</code> value and were excluded from the gap analysis.
+  </p>
+  <table class="w-full text-left">
+    <thead>
+      <tr class="caps caps-soft">
+        <th class="py-2">Issue</th>
+        <th class="py-2">Date</th>
+        <th class="py-2"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in excluded %}
+        <tr class="border-t border-[var(--ink)] border-opacity-20">
+          <td class="py-3">{{ m.issue or "—" }}</td>
+          <td class="py-3">{{ m.publication_date or "—" }}</td>
+          <td class="py-3 text-right">
+            <a href="/admin/issues/{{ m.id }}/edit" class="link-italic">edit</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% endblock %}
