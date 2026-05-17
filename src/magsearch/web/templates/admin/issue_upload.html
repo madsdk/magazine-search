@@ -1,0 +1,31 @@
+{% extends "admin/admin_base.html" %}
+
+{% block admin_content %}
+<div class="mb-8">
+  <p class="caps caps-soft">Issues</p>
+  <h2 class="display text-4xl">Upload bundle</h2>
+  <p class="link-italic mt-2">
+    Drop a <code>.zip</code> of a bundle directory built by
+    <code>magsearch ingest</code> on the GPU box. The zip must contain a
+    <code>manifest.json</code> at its root or inside a single top-level
+    folder.
+  </p>
+</div>
+
+{% if error %}
+<div class="mb-6 border border-[var(--ink)] border-opacity-30 p-4">
+  <p class="caps caps-soft">Upload rejected</p>
+  <p>{{ error }}</p>
+</div>
+{% endif %}
+
+<form method="post" action="/admin/issues/upload" enctype="multipart/form-data"
+      class="flex flex-col gap-4 max-w-xl">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="file" name="bundle" accept=".zip" required class="field-small">
+  <div class="flex gap-3 items-baseline">
+    <button class="mark-go" type="submit">upload ↵</button>
+    <a href="/admin/issues" class="link-italic">cancel</a>
+  </div>
+</form>
+{% endblock %}

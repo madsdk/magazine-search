@@ -198,3 +198,22 @@ def test_missing_file_referenced_in_manifest_is_rejected(tmp_path):
         extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
 
     assert list(final_root.iterdir()) == []
+
+
+# --- Route tests ---
+
+def test_get_upload_form_requires_admin(app_client):
+    client, _ = app_client
+    resp = client.get("/admin/issues/upload", follow_redirects=False)
+    # Anonymous → redirected to /login.
+    assert resp.status_code == 303
+    assert "/login" in resp.headers["location"]
+
+
+def test_get_upload_form_renders_for_admin(admin_client):
+    client, _ = admin_client
+    resp = client.get("/admin/issues/upload")
+    assert resp.status_code == 200
+    assert 'name="bundle"' in resp.text
+    assert 'type="file"' in resp.text
+    assert 'name="csrf_token"' in resp.text

@@ -62,6 +62,13 @@ def issues_index(
     )
 
 
+@router.get("/issues/upload", response_class=HTMLResponse)
+def issue_upload_form(request: Request) -> HTMLResponse:
+    return _TEMPLATES.TemplateResponse(
+        request, "admin/issue_upload.html", {"error": None}
+    )
+
+
 @router.get("/issues/{magazine_id}/edit", response_class=HTMLResponse)
 def issue_edit_form(
     request: Request, magazine_id: str, db: Session = Depends(get_db)
