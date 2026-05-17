@@ -40,3 +40,19 @@ def test_extract_and_stage_shape_a_publishes_bundle(tmp_path):
     # No residue temp dir left behind.
     leftovers = [p.name for p in final_root.iterdir() if p.name.startswith(".upload-")]
     assert leftovers == []
+
+
+def test_extract_and_stage_shape_b_publishes_bundle(tmp_path):
+    src = make_bundle(tmp_path / "src")
+    bundle_id = src.name
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="B")
+
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    staged = extract_and_stage(
+        zip_path, final_root, max_uncompressed_bytes=_2_GB,
+    )
+
+    assert staged == final_root / bundle_id
+    assert (staged / "manifest.json").exists()
