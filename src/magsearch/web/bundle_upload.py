@@ -53,6 +53,11 @@ def extract_and_stage(
         prefix = _resolve_bundle_prefix(zf)
         manifest = _read_manifest(zf, prefix)
 
+        total = sum(info.file_size for info in zf.infolist())
+        if total > max_uncompressed_bytes:
+            mb = max_uncompressed_bytes // (1024 * 1024)
+            raise BundleUploadError(f"bundle would exceed max size of {mb} MB")
+
         staging = bundles_dir / f".upload-{manifest.id}-{uuid.uuid4().hex}"
         try:
             _extract_under_prefix(zf, prefix, staging)
