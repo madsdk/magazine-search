@@ -380,3 +380,10 @@ def test_post_upload_idempotent_reupload(admin_client, tmp_path):
     with session_scope(factory) as s:
         rows = s.scalars(select(Magazine).where(Magazine.id == bundle_id)).all()
         assert len(rows) == 1
+
+
+def test_issues_index_links_to_upload(admin_client):
+    client, _ = admin_client
+    resp = client.get("/admin/issues")
+    assert resp.status_code == 200
+    assert "/admin/issues/upload" in resp.text
