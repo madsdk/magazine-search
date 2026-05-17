@@ -260,3 +260,46 @@ def test_post_upload_imports_new_bundle(admin_client, tmp_path):
         mag = s.scalar(select(Magazine).where(Magazine.id == bundle_id))
         assert mag is not None
         assert mag.title == "ZX Spectrum"
+
+
+def test_post_upload_renders_error_on_bad_zip(admin_client, tmp_path):
+    client, _ = admin_client
+    bad = tmp_path / "bad.zip"
+    bad.write_bytes(b"this is not a zip file")
+
+    token = _get_csrf(client)
+    with bad.open("rb") as fp:
+        resp = client.post(
+            "/admin/issues/upload",
+            data={"csrf_token": token},
+            files={"bundle": ("bad.zip", fp, "application/zip")},
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 400
+    assert "not a valid zip" in resp.text
+    # The form is still on the page so the admin can retry.
+    assert 'name="bundle"' in resp.text
+
+
+def test_post_upload_renders_error_on_size_limit(admin_client, tmp_path, monkeypatch):
+    # Cap the limit to 10 bytes for this test so any real bundle blows it.
+    monkeypatch.setenv("MAGSEARCH_MAX_UPLOAD_BYTES", "10")
+    # Reset cached settings/deps so the override takes effect.
+    from magsearch.web import deps as _deps
+    _deps._session_factory_for.cache_clear()
+
+    client, _ = admin_client
+    src = make_bundle(tmp_path / "src")
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="A")
+
+    token = _get_csrf(client)
+    with zip_path.open("rb") as fp:
+        resp = client.post(
+            "/admin/issues/upload",
+            data={"csrf_token": token},
+            files={"bundle": ("upload.zip", fp, "application/zip")},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 400
+    assert "exceed max size" in resp.text
