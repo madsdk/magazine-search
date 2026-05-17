@@ -168,3 +168,33 @@ def test_id_collision_with_different_content_is_rejected(tmp_path):
     # No residue.
     leftovers = [p.name for p in final_root.iterdir() if p.name.startswith(".upload-")]
     assert leftovers == []
+
+
+def test_checksum_mismatch_is_rejected(tmp_path):
+    src = make_bundle(tmp_path / "src")
+    # Corrupt one of the page files before zipping.
+    corrupt = src / "pages" / "0001.webp"
+    corrupt.write_bytes(b"corrupted bytes")
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="A")
+
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+    with pytest.raises(BundleUploadError, match="checksum mismatch"):
+        extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+
+    # No residue, no published bundle.
+    assert list(final_root.iterdir()) == []
+
+
+def test_missing_file_referenced_in_manifest_is_rejected(tmp_path):
+    src = make_bundle(tmp_path / "src")
+    # Delete a file the manifest still references.
+    (src / "pages" / "0001.webp").unlink()
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="A")
+
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+    with pytest.raises(BundleUploadError, match="file listed in manifest is missing"):
+        extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+
+    assert list(final_root.iterdir()) == []
