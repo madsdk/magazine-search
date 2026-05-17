@@ -11,7 +11,11 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 
+from magsearch.db import make_engine, make_session_factory, session_scope
+from magsearch.models import Magazine
+from magsearch.settings import get_settings
 from magsearch.web.bundle_upload import BundleUploadError, extract_and_stage
 from tests.fixtures.bundles import make_bundle, zip_bundle
 
@@ -217,3 +221,42 @@ def test_get_upload_form_renders_for_admin(admin_client):
     assert 'name="bundle"' in resp.text
     assert 'type="file"' in resp.text
     assert 'name="csrf_token"' in resp.text
+
+
+def _get_csrf(client) -> str:
+    """Pull a CSRF token from the upload form."""
+    resp = client.get("/admin/issues/upload")
+    assert resp.status_code == 200
+    import re
+    m = re.search(r'name="csrf_token" value="([^"]+)"', resp.text)
+    assert m, "csrf token not on upload form"
+    return m.group(1)
+
+
+def test_post_upload_imports_new_bundle(admin_client, tmp_path):
+    client, bundles_dir = admin_client
+    src = make_bundle(tmp_path / "src", title="ZX Spectrum", num_pages=1)
+    bundle_id = src.name
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="A")
+
+    token = _get_csrf(client)
+    with zip_path.open("rb") as fp:
+        resp = client.post(
+            "/admin/issues/upload",
+            data={"csrf_token": token},
+            files={"bundle": ("upload.zip", fp, "application/zip")},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 303, resp.text
+    assert resp.headers["location"] == f"/admin/issues/{bundle_id}/edit"
+
+    # Bundle dir on disk.
+    assert (bundles_dir / bundle_id / "manifest.json").exists()
+
+    # DB row exists.
+    settings = get_settings()
+    factory = make_session_factory(make_engine(settings.database_url))
+    with session_scope(factory) as s:
+        mag = s.scalar(select(Magazine).where(Magazine.id == bundle_id))
+        assert mag is not None
+        assert mag.title == "ZX Spectrum"

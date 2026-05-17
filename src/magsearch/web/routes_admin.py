@@ -1,16 +1,20 @@
+import shutil
+import tempfile
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from magsearch.importer import delete_bundle_dir
+from magsearch.importer import delete_bundle_dir, import_bundle
+from magsearch.importer import ImportError as MagImportError
 from magsearch.models import Magazine, User
 from magsearch.settings import Settings, get_settings
 from magsearch.web.auth import hash_password, normalize_username
+from magsearch.web.bundle_upload import BundleUploadError, extract_and_stage
 from magsearch.web.config_service import CONFIG_REGISTRY, get_all, set_value
 from magsearch.web.deps import get_db, require_admin, require_csrf
 
@@ -67,6 +71,53 @@ def issue_upload_form(request: Request) -> HTMLResponse:
     return _TEMPLATES.TemplateResponse(
         request, "admin/issue_upload.html", {"error": None}
     )
+
+
+@router.post("/issues/upload")
+def issue_upload_submit(
+    request: Request,
+    bundle: UploadFile,
+    _csrf: None = Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    # Stream the upload to a real temp file so a 1 GB body doesn't OOM us.
+    tmp_dir = Path(tempfile.mkdtemp(prefix="magsearch-upload-"))
+    tmp_zip = tmp_dir / "upload.zip"
+    try:
+        with tmp_zip.open("wb") as out:
+            shutil.copyfileobj(bundle.file, out)
+
+        try:
+            staged = extract_and_stage(
+                tmp_zip,
+                settings.bundles_dir,
+                max_uncompressed_bytes=settings.max_upload_bytes,
+            )
+        except BundleUploadError as exc:
+            return _TEMPLATES.TemplateResponse(
+                request,
+                "admin/issue_upload.html",
+                {"error": str(exc)},
+                status_code=400,
+            )
+
+        try:
+            magazine_id = import_bundle(staged, db)
+            db.commit()
+        except MagImportError as exc:
+            return _TEMPLATES.TemplateResponse(
+                request,
+                "admin/issue_upload.html",
+                {"error": f"Import failed: {exc}"},
+                status_code=400,
+            )
+
+        return RedirectResponse(
+            url=f"/admin/issues/{magazine_id}/edit", status_code=303,
+        )
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @router.get("/issues/{magazine_id}/edit", response_class=HTMLResponse)
