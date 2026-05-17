@@ -343,3 +343,40 @@ def test_post_upload_rejects_missing_csrf(admin_client, tmp_path):
     # dependency reads `csrf_token` via Form(...), so an absent token
     # triggers 422 (missing form field).
     assert resp.status_code in (403, 422)
+
+
+def test_post_upload_idempotent_reupload(admin_client, tmp_path):
+    client, bundles_dir = admin_client
+    src = make_bundle(tmp_path / "src", title="Atari Age", num_pages=1)
+    bundle_id = src.name
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="A")
+
+    # First upload.
+    token = _get_csrf(client)
+    with zip_path.open("rb") as fp:
+        first = client.post(
+            "/admin/issues/upload",
+            data={"csrf_token": token},
+            files={"bundle": ("upload.zip", fp, "application/zip")},
+            follow_redirects=False,
+        )
+    assert first.status_code == 303
+
+    # Second upload of the identical zip → also redirects, no error.
+    token = _get_csrf(client)
+    with zip_path.open("rb") as fp:
+        second = client.post(
+            "/admin/issues/upload",
+            data={"csrf_token": token},
+            files={"bundle": ("upload.zip", fp, "application/zip")},
+            follow_redirects=False,
+        )
+    assert second.status_code == 303
+    assert second.headers["location"] == f"/admin/issues/{bundle_id}/edit"
+
+    # Only one DB row.
+    settings = get_settings()
+    factory = make_session_factory(make_engine(settings.database_url))
+    with session_scope(factory) as s:
+        rows = s.scalars(select(Magazine).where(Magazine.id == bundle_id)).all()
+        assert len(rows) == 1
