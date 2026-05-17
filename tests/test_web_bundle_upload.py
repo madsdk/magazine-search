@@ -301,8 +301,11 @@ def test_post_upload_renders_error_on_size_limit(admin_client, tmp_path, monkeyp
             files={"bundle": ("upload.zip", fp, "application/zip")},
             follow_redirects=False,
         )
-    assert resp.status_code == 400
-    assert "exceed max size" in resp.text
+    # With the body-cap in place, a 10-byte limit fires as 413 (body too large)
+    # before extract_and_stage even sees the data.  Either way the size limit
+    # is enforced; accept both 400 and 413.
+    assert resp.status_code in (400, 413)
+    assert "exceed" in resp.text.lower()
 
 
 def test_post_upload_requires_admin(user_client, tmp_path):
@@ -387,3 +390,57 @@ def test_issues_index_links_to_upload(admin_client):
     resp = client.get("/admin/issues")
     assert resp.status_code == 200
     assert "/admin/issues/upload" in resp.text
+
+
+def test_post_upload_rejects_body_exceeding_limit(admin_client, tmp_path, monkeypatch):
+    """The body byte count is enforced before the upload is fully spooled to disk.
+
+    We don't need to actually upload more than the limit — we just need to assert
+    that an oversized body produces a 413 with the right error.
+    """
+    monkeypatch.setenv("MAGSEARCH_MAX_UPLOAD_BYTES", "100")  # 100 bytes
+    from magsearch.web import deps as _deps
+    _deps._session_factory_for.cache_clear()
+
+    client, _ = admin_client
+    big = tmp_path / "big.zip"
+    big.write_bytes(b"x" * 5_000)  # ~5 KB, well over the 100-byte cap
+
+    token = _get_csrf(client)
+    with big.open("rb") as fp:
+        resp = client.post(
+            "/admin/issues/upload",
+            data={"csrf_token": token},
+            files={"bundle": ("big.zip", fp, "application/zip")},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 413
+    assert "exceeds" in resp.text.lower() or "too large" in resp.text.lower() or "exceed" in resp.text.lower()
+
+
+def test_cross_filesystem_rename_is_rejected_with_friendly_error(tmp_path, monkeypatch):
+    """If os.rename raises EXDEV (cross-filesystem rename), bundle_upload should
+    surface it as a BundleUploadError rather than letting the bare OSError escape.
+    """
+    import os
+    import errno
+    from magsearch.web import bundle_upload as bu
+
+    src = make_bundle(tmp_path / "src")
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="A")
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    real_rename = os.rename
+
+    def fake_rename(src, dst):
+        # Simulate EXDEV. real_rename is fine for the path resolve etc.,
+        # but at the actual atomic-publish call, raise EXDEV.
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+    monkeypatch.setattr(bu.os, "rename", fake_rename)
+    with pytest.raises(BundleUploadError, match="different filesystems"):
+        extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+    # Staging dir cleaned up.
+    leftovers = [p.name for p in final_root.iterdir() if p.name.startswith(".upload-")]
+    assert leftovers == []

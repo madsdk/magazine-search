@@ -81,12 +81,27 @@ def issue_upload_submit(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    # Stream the upload to a real temp file so a 1 GB body doesn't OOM us.
+    # Stream the upload to a real temp file with a hard byte cap so an
+    # oversized body can't fill the disk before extract_and_stage runs.
     tmp_dir = Path(tempfile.mkdtemp(prefix="magsearch-upload-"))
     tmp_zip = tmp_dir / "upload.zip"
     try:
+        cap = settings.max_upload_bytes
+        bytes_written = 0
         with tmp_zip.open("wb") as out:
-            shutil.copyfileobj(bundle.file, out)
+            while True:
+                chunk = bundle.file.read(64 * 1024)
+                if not chunk:
+                    break
+                bytes_written += len(chunk)
+                if bytes_written > cap:
+                    return _TEMPLATES.TemplateResponse(
+                        request,
+                        "admin/issue_upload.html",
+                        {"error": f"upload body exceeds max size of {cap // (1024 * 1024)} MB"},
+                        status_code=413,
+                    )
+                out.write(chunk)
 
         try:
             staged = extract_and_stage(

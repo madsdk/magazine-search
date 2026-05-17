@@ -16,7 +16,7 @@ Invariants:
 
 from __future__ import annotations
 
-import json
+import errno
 import os
 import shutil
 import uuid
@@ -76,7 +76,14 @@ def extract_and_stage(
             _extract_under_prefix(zf, prefix, staging)
             _verify_checksums(staging, manifest)
             final = bundles_dir / manifest.id
-            os.rename(staging, final)
+            try:
+                os.rename(staging, final)
+            except OSError as exc:
+                if exc.errno == errno.EXDEV:
+                    raise BundleUploadError(
+                        "cannot publish bundle: temp dir and bundles_dir are on different filesystems"
+                    ) from exc
+                raise
             return final
         except BaseException:
             if staging.exists():
