@@ -136,3 +136,35 @@ def test_idempotent_reupload_returns_existing_path(tmp_path):
     # No leftover .upload-* staging directories.
     leftovers = [p.name for p in final_root.iterdir() if p.name.startswith(".upload-")]
     assert leftovers == []
+
+
+def test_id_collision_with_different_content_is_rejected(tmp_path):
+    # Build two bundles that we'll force to share the same id.
+    src_a = make_bundle(tmp_path / "src_a", num_pages=1)
+    src_b = make_bundle(tmp_path / "src_b", num_pages=2)
+
+    # Edit src_b's manifest to claim src_a's id (mimics a content-collision
+    # situation). Note: this also changes the manifest's checksum file list,
+    # but only the `id` field — bundle_upload's collision check only cares
+    # about id and content_hash.
+    manifest_a = json.loads((src_a / "manifest.json").read_text())
+    manifest_b = json.loads((src_b / "manifest.json").read_text())
+    manifest_b["id"] = manifest_a["id"]
+    (src_b / "manifest.json").write_text(json.dumps(manifest_b))
+    # Re-zip src_b with the doctored manifest. We also need src_b's bundle
+    # directory to be renamed so zip_bundle's Shape A uses the new id.
+    renamed = src_b.parent / manifest_a["id"]
+    src_b.rename(renamed)
+    zip_b = zip_bundle(renamed, tmp_path / "b.zip", shape="A")
+    zip_a = zip_bundle(src_a, tmp_path / "a.zip", shape="A")
+
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    extract_and_stage(zip_a, final_root, max_uncompressed_bytes=_2_GB)
+    with pytest.raises(BundleUploadError, match="already exists with different content"):
+        extract_and_stage(zip_b, final_root, max_uncompressed_bytes=_2_GB)
+
+    # No residue.
+    leftovers = [p.name for p in final_root.iterdir() if p.name.startswith(".upload-")]
+    assert leftovers == []
