@@ -303,3 +303,43 @@ def test_post_upload_renders_error_on_size_limit(admin_client, tmp_path, monkeyp
         )
     assert resp.status_code == 400
     assert "exceed max size" in resp.text
+
+
+def test_post_upload_requires_admin(user_client, tmp_path):
+    """Signed-in non-admins are forbidden."""
+    client, _ = user_client
+    src = make_bundle(tmp_path / "src")
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="A")
+
+    # We still need a CSRF token; user_client is signed in but not admin.
+    # Grab one from /login (allow-listed, always renders a form).
+    from tests.conftest import get_csrf
+    token = get_csrf(client)
+
+    with zip_path.open("rb") as fp:
+        resp = client.post(
+            "/admin/issues/upload",
+            data={"csrf_token": token},
+            files={"bundle": ("upload.zip", fp, "application/zip")},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 403
+
+
+def test_post_upload_rejects_missing_csrf(admin_client, tmp_path):
+    client, _ = admin_client
+    src = make_bundle(tmp_path / "src")
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="A")
+
+    with zip_path.open("rb") as fp:
+        # No csrf_token in data.
+        resp = client.post(
+            "/admin/issues/upload",
+            data={},
+            files={"bundle": ("upload.zip", fp, "application/zip")},
+            follow_redirects=False,
+        )
+    # FastAPI returns 422 if a required Form field is absent; the CSRF
+    # dependency reads `csrf_token` via Form(...), so an absent token
+    # triggers 422 (missing form field).
+    assert resp.status_code in (403, 422)
