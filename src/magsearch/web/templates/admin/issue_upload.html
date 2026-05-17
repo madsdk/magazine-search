@@ -20,12 +20,64 @@
 {% endif %}
 
 <form method="post" action="/admin/issues/upload" enctype="multipart/form-data"
-      class="flex flex-col gap-4 max-w-xl">
+      id="bundle-upload-form" class="flex flex-col gap-4 max-w-xl">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="file" name="bundle" accept=".zip" required class="field-small">
+  <progress id="bundle-upload-progress" value="0" max="100"
+            class="hidden w-full"></progress>
+  <p id="bundle-upload-status" class="caps caps-soft hidden"></p>
   <div class="flex gap-3 items-baseline">
-    <button class="mark-go" type="submit">upload ↵</button>
+    <button class="mark-go" type="submit" id="bundle-upload-submit">upload ↵</button>
     <a href="/admin/issues" class="link-italic">cancel</a>
   </div>
 </form>
+
+<script>
+(function () {
+  const form = document.getElementById("bundle-upload-form");
+  const progress = document.getElementById("bundle-upload-progress");
+  const status = document.getElementById("bundle-upload-status");
+  const submit = document.getElementById("bundle-upload-submit");
+  if (!form || !window.XMLHttpRequest || !window.FormData) return;
+
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    const fd = new FormData(form);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", form.action);
+
+    progress.classList.remove("hidden");
+    status.classList.remove("hidden");
+    submit.disabled = true;
+    status.textContent = "uploading…";
+
+    xhr.upload.addEventListener("progress", function (e) {
+      if (!e.lengthComputable) return;
+      const pct = Math.round((e.loaded / e.total) * 100);
+      progress.value = pct;
+      status.textContent = "uploading " + pct + "%";
+    });
+    xhr.addEventListener("load", function () {
+      // On a 3xx the browser follows the Location header automatically when
+      // the response body is the redirect. With XHR we have to do it manually.
+      if (xhr.status >= 200 && xhr.status < 400) {
+        status.textContent = "imported. redirecting…";
+        // Follow the redirect target the server gave us; XHR exposes it via
+        // responseURL when redirects are followed, or we fall back to issues.
+        window.location = xhr.responseURL || "/admin/issues";
+      } else {
+        // Replace the page with the server-rendered error form.
+        document.open();
+        document.write(xhr.responseText);
+        document.close();
+      }
+    });
+    xhr.addEventListener("error", function () {
+      status.textContent = "upload failed — network error";
+      submit.disabled = false;
+    });
+    xhr.send(fd);
+  });
+})();
+</script>
 {% endblock %}
