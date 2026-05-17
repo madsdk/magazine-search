@@ -3,7 +3,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from magsearch.ingest.ids import content_hash
@@ -42,17 +42,14 @@ def import_bundle(bundle_dir: Path, session: Session) -> str:
     _verify_checksums(bundle_dir, manifest)
 
     existing = session.scalar(select(Magazine).where(Magazine.id == manifest.id))
-    if existing is not None and existing.content_hash != manifest.content_hash:
-        raise ImportError(
-            f"id collision: '{manifest.id}' already exists with content_hash "
-            f"{existing.content_hash!r} but bundle has {manifest.content_hash!r}. "
-            f"Use --id to disambiguate."
-        )
-
     if existing is not None:
-        session.execute(delete(Page).where(Page.magazine_id == manifest.id))
-        session.delete(existing)
-        session.flush()
+        if existing.content_hash != manifest.content_hash:
+            raise ImportError(
+                f"id collision: '{manifest.id}' already exists with content_hash "
+                f"{existing.content_hash!r} but bundle has {manifest.content_hash!r}. "
+                f"Use --id to disambiguate."
+            )
+        return manifest.id
 
     session.add(Magazine(
         id=manifest.id,

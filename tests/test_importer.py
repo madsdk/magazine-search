@@ -69,6 +69,21 @@ def test_import_is_idempotent(tmp_path, db):
     assert n_pages == 2
 
 
+def test_reimport_preserves_ingested_at(tmp_path, db):
+    factory, _ = db
+    bundle = _ingested_bundle(tmp_path)
+    with session_scope(factory) as s:
+        import_bundle(bundle, s)
+    with session_scope(factory) as s:
+        first = s.scalar(select(Magazine).where(Magazine.id == "byte-1985-12"))
+        original_ingested_at = first.ingested_at
+    with session_scope(factory) as s:
+        import_bundle(bundle, s)
+    with session_scope(factory) as s:
+        again = s.scalar(select(Magazine).where(Magazine.id == "byte-1985-12"))
+        assert again.ingested_at == original_ingested_at
+
+
 def test_import_detects_slug_collision(tmp_path, db):
     factory, _ = db
     b1 = _ingested_bundle(tmp_path / "first", title="Byte", num_pages=1)
