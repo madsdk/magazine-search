@@ -19,3 +19,4 @@ bundles/
 /ext_venv
 /.scratch
 /.playwright-mcp
+/.claude
