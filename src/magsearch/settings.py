@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/magsearch.db"
     bundles_dir: Path = Path("./data/bundles")
     session_secret: str = ""
+    max_upload_bytes: int = 2 * 1024 * 1024 * 1024  # 2 GB cap on web bundle uploads
 
 
 def get_settings() -> Settings:
