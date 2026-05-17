@@ -220,9 +220,11 @@ Deliberately not validated (out of scope):
 
 Idempotency: re-uploading the same zip is a no-op. Step 5 spots the existing
 bundle with matching `content_hash` and short-circuits before extraction. The
-handler still calls `import_bundle()`, which is already idempotent. The UI
-shows "Bundle already imported. Showing the existing issue." and redirects to
-the issue.
+handler still calls `import_bundle()`, which is already idempotent. The
+response is the same as a fresh upload — a 303 redirect to the existing
+`/admin/issues/<id>` page. No flash message; the natural outcome (user lands
+on the issue that already exists) is self-explanatory and avoids adding flash
+infrastructure that doesn't exist elsewhere in the admin UI today.
 
 ## Error handling
 
@@ -246,7 +248,7 @@ a browser constraint, not something to paper over.
 
 ## Tests
 
-New file `tests/web/test_bundle_upload.py`.
+New file `tests/test_web_bundle_upload.py`.
 
 Pure logic (no FastAPI, `extract_and_stage` direct):
 
