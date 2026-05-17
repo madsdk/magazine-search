@@ -113,3 +113,26 @@ def test_path_traversal_is_rejected(tmp_path):
     with pytest.raises(BundleUploadError, match="unsafe path"):
         extract_and_stage(z, final_root, max_uncompressed_bytes=_2_GB)
     assert list(final_root.iterdir()) == []
+
+
+def test_idempotent_reupload_returns_existing_path(tmp_path):
+    src = make_bundle(tmp_path / "src")
+    bundle_id = src.name
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="A")
+
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    # First upload publishes the bundle.
+    first = extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+    assert first == final_root / bundle_id
+    first_mtime = (first / "manifest.json").stat().st_mtime_ns
+
+    # Second upload with identical content short-circuits.
+    second = extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+    assert second == first
+    # The on-disk manifest mtime is unchanged — i.e. nothing got re-extracted.
+    assert (second / "manifest.json").stat().st_mtime_ns == first_mtime
+    # No leftover .upload-* staging directories.
+    leftovers = [p.name for p in final_root.iterdir() if p.name.startswith(".upload-")]
+    assert leftovers == []

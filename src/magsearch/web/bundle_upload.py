@@ -58,6 +58,19 @@ def extract_and_stage(
             mb = max_uncompressed_bytes // (1024 * 1024)
             raise BundleUploadError(f"bundle would exceed max size of {mb} MB")
 
+        existing = bundles_dir / manifest.id
+        if existing.exists():
+            existing_manifest_path = existing / "manifest.json"
+            if existing_manifest_path.exists():
+                existing_manifest = Manifest.model_validate_json(
+                    existing_manifest_path.read_text()
+                )
+                if existing_manifest.content_hash == manifest.content_hash:
+                    return existing
+            raise BundleUploadError(
+                f"bundle id {manifest.id!r} already exists with different content"
+            )
+
         staging = bundles_dir / f".upload-{manifest.id}-{uuid.uuid4().hex}"
         try:
             _extract_under_prefix(zf, prefix, staging)
