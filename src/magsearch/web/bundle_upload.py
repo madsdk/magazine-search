@@ -202,8 +202,20 @@ def _extract_under_prefix(zf: zipfile.ZipFile, prefix: str, dest: Path) -> None:
 
 
 def _verify_checksums(bundle_dir: Path, manifest: Manifest) -> None:
+    # manifest.checksums[].path is attacker-controlled. Apply the same
+    # child-of-bundle guard used during extraction so a doctored manifest
+    # can't make us hash files outside the staged bundle (absolute paths
+    # like "/etc/passwd" or traversal segments like "../../something").
+    bundle_resolved = bundle_dir.resolve()
     for c in manifest.checksums:
-        path = bundle_dir / c.path
+        try:
+            path = (bundle_dir / c.path).resolve()
+        except (ValueError, OSError):
+            raise BundleUploadError(f"checksum path is unsafe: {c.path!r}")
+        try:
+            path.relative_to(bundle_resolved)
+        except ValueError:
+            raise BundleUploadError(f"checksum path escapes bundle: {c.path!r}")
         if not path.exists():
             raise BundleUploadError(f"file listed in manifest is missing: {c.path}")
         if content_hash(path) != c.sha256:

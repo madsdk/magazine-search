@@ -446,6 +446,28 @@ def test_cross_filesystem_rename_is_rejected_with_friendly_error(tmp_path, monke
     assert leftovers == []
 
 
+def _zip_with_doctored_checksums(
+    src_bundle: Path,
+    extra_checksums: list[dict],
+    zip_path: Path,
+) -> Path:
+    """Re-zip a real bundle Shape B with extra entries appended to
+    manifest.checksums. The on-disk files are the legitimate ones; only the
+    manifest's checksum list is doctored to reference something elsewhere."""
+    manifest = json.loads((src_bundle / "manifest.json").read_text())
+    manifest["checksums"] = list(manifest["checksums"]) + extra_checksums
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest))
+        for path in sorted(src_bundle.rglob("*")):
+            if path.is_dir():
+                continue
+            rel = path.relative_to(src_bundle).as_posix()
+            if rel == "manifest.json":
+                continue
+            zf.write(path, arcname=rel)
+    return zip_path
+
+
 def _zip_with_doctored_id(src_bundle: Path, doctored_id: str, zip_path: Path) -> Path:
     """Re-zip a real bundle Shape B (contents at zip root) after overwriting
     its manifest id. We use Shape B so the on-disk directory does not need to
@@ -534,6 +556,49 @@ def test_manifest_id_nested_subpath_is_rejected(tmp_path):
         extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
 
     assert list(final_root.iterdir()) == []
+
+
+def test_checksum_path_with_parent_traversal_is_rejected(tmp_path):
+    """A manifest checksum path like '../../etc/passwd' must be rejected
+    before hashing, so verification can never read files outside the bundle.
+    """
+    src = make_bundle(tmp_path / "src")
+    zip_path = _zip_with_doctored_checksums(
+        src,
+        extra_checksums=[{"path": "../../etc/passwd", "sha256": "0" * 64}],
+        zip_path=tmp_path / "evil.zip",
+    )
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    with pytest.raises(BundleUploadError, match="escapes bundle"):
+        extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+
+    # And no published bundle from the failed upload.
+    published = [p for p in final_root.iterdir() if not p.name.startswith(".upload-")]
+    assert published == []
+
+
+def test_checksum_path_absolute_is_rejected(tmp_path):
+    """An absolute path in manifest.checksums must be rejected before hashing.
+
+    Even though Python's `bundle_dir / '/etc/passwd'` discards `bundle_dir`,
+    we want a clear "escapes bundle" error rather than silently reading the
+    system file (and worse: accepting it if the hash matches a known value).
+    """
+    src = make_bundle(tmp_path / "src")
+    # Pick a file that's certain to exist and is harmless to reference.
+    abs_target = "/etc/hostname"
+    zip_path = _zip_with_doctored_checksums(
+        src,
+        extra_checksums=[{"path": abs_target, "sha256": "0" * 64}],
+        zip_path=tmp_path / "evil.zip",
+    )
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    with pytest.raises(BundleUploadError, match="escapes bundle"):
+        extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
 
 
 def test_oversized_body_rejected_by_middleware_before_route(admin_client, tmp_path, monkeypatch):
