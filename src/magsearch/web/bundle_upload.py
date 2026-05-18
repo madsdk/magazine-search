@@ -152,18 +152,23 @@ def _read_manifest(zf: zipfile.ZipFile, prefix: str) -> Manifest:
         )
 
     # Then stream-read with the same hard cap so a lying header (declared
-    # small, actually huge) can't sneak past either.
+    # small, actually huge) can't sneak past either. BadZipFile here means
+    # the member is corrupt (bad CRC, truncated deflate stream, etc.) — map
+    # it to a friendly error rather than letting it bubble up as a 500.
     buf = bytearray()
-    with zf.open(info) as f:
-        while True:
-            chunk = f.read(64 * 1024)
-            if not chunk:
-                break
-            buf.extend(chunk)
-            if len(buf) > _MAX_MANIFEST_BYTES:
-                raise BundleUploadError(
-                    f"manifest.json is larger than the allowed {_MAX_MANIFEST_BYTES // (1024 * 1024)} MB"
-                )
+    try:
+        with zf.open(info) as f:
+            while True:
+                chunk = f.read(64 * 1024)
+                if not chunk:
+                    break
+                buf.extend(chunk)
+                if len(buf) > _MAX_MANIFEST_BYTES:
+                    raise BundleUploadError(
+                        f"manifest.json is larger than the allowed {_MAX_MANIFEST_BYTES // (1024 * 1024)} MB"
+                    )
+    except zipfile.BadZipFile as exc:
+        raise BundleUploadError("manifest.json is corrupt in zip") from exc
 
     try:
         return Manifest.model_validate_json(bytes(buf))
@@ -187,8 +192,13 @@ def _extract_under_prefix(zf: zipfile.ZipFile, prefix: str, dest: Path) -> None:
         except ValueError:
             raise BundleUploadError(f"zip contains unsafe path: {name!r}")
         target.parent.mkdir(parents=True, exist_ok=True)
-        with zf.open(info) as src, target.open("wb") as out:
-            shutil.copyfileobj(src, out)
+        try:
+            with zf.open(info) as src, target.open("wb") as out:
+                shutil.copyfileobj(src, out)
+        except zipfile.BadZipFile as exc:
+            # Corrupt or truncated member — map to a friendly error so the
+            # admin endpoint returns 400 instead of crashing with a 500.
+            raise BundleUploadError(f"zip member is corrupt: {name!r}") from exc
 
 
 def _verify_checksums(bundle_dir: Path, manifest: Manifest) -> None:

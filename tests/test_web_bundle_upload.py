@@ -534,3 +534,69 @@ def test_manifest_id_nested_subpath_is_rejected(tmp_path):
         extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
 
     assert list(final_root.iterdir()) == []
+
+
+def test_corrupt_manifest_member_returns_friendly_error(tmp_path, monkeypatch):
+    """zipfile.BadZipFile can fire during a member *read* (bad CRC, truncated
+    deflate stream), not just at open time. Those failures must map to a
+    BundleUploadError so the route returns 400 rather than crashing with 500.
+
+    We simulate a corrupt manifest entry by patching ZipFile.open so reading
+    the manifest raises BadZipFile mid-stream.
+    """
+    src = make_bundle(tmp_path / "src")
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="A")
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    real_open = zipfile.ZipFile.open
+
+    def broken_open(self, name_or_info, *args, **kwargs):
+        f = real_open(self, name_or_info, *args, **kwargs)
+        name = name_or_info.filename if isinstance(name_or_info, zipfile.ZipInfo) else name_or_info
+        if name.endswith("manifest.json"):
+            def bad_read(*_a, **_k):
+                raise zipfile.BadZipFile("simulated bad CRC")
+            f.read = bad_read
+        return f
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", broken_open)
+
+    with pytest.raises(BundleUploadError, match="manifest.json is corrupt"):
+        extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+    assert list(final_root.iterdir()) == []
+
+
+def test_corrupt_member_during_extraction_returns_friendly_error(tmp_path, monkeypatch):
+    """Same defense, but for a non-manifest member. The manifest reads cleanly
+    so we proceed to staging; the corruption fires during _extract_under_prefix
+    and must still surface as a BundleUploadError."""
+    src = make_bundle(tmp_path / "src")
+    zip_path = zip_bundle(src, tmp_path / "upload.zip", shape="A")
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    real_open = zipfile.ZipFile.open
+
+    def broken_open(self, name_or_info, *args, **kwargs):
+        f = real_open(self, name_or_info, *args, **kwargs)
+        name = name_or_info.filename if isinstance(name_or_info, zipfile.ZipInfo) else name_or_info
+        # Manifest reads cleanly; the first non-manifest payload member blows up.
+        if name.endswith("cover.webp"):
+            def bad_read(*_a, **_k):
+                raise zipfile.BadZipFile("simulated truncated deflate stream")
+            f.read = bad_read
+        return f
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", broken_open)
+
+    with pytest.raises(BundleUploadError, match="zip member is corrupt"):
+        extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+
+    # No residue: staging dir must be cleaned up even though we got past
+    # validation before failing.
+    leftovers = [p.name for p in final_root.iterdir() if p.name.startswith(".upload-")]
+    assert leftovers == []
+    # And no published bundle.
+    published = [p for p in final_root.iterdir() if not p.name.startswith(".upload-")]
+    assert published == []
