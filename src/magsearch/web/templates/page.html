@@ -49,10 +49,33 @@
 
 {# ─────────────────────── page image ─────────────────────── #}
 <figure class="py-10">
-  <div class="cover-frame inline-block w-full">
-    <img src="/bundle/{{ page.image_path }}" alt="page {{ page.page_number }}">
+  <div id="page-frame" class="cover-frame inline-block w-full" data-rotation="0">
+    <img id="page-img" src="/bundle/{{ page.image_path }}" alt="page {{ page.page_number }}">
   </div>
 </figure>
+
+<style>
+  /* The frame's aspect-ratio is set by JS to match the *visual* aspect for
+     the current rotation. The image is absolutely positioned so its center
+     always coincides with the frame's center — without this, rotating into
+     the inverted aspect would clip half the image (the image's layout box
+     stays at its natural height and overflows the frame). */
+  #page-frame {
+    width: 100%;
+    position: relative;
+    transition: aspect-ratio 0.25s ease;
+  }
+  #page-frame img {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    transform-origin: center center;
+    transition: transform 0.25s ease;
+  }
+</style>
 
 <div class="rule"></div>
 
@@ -67,8 +90,11 @@
   <div class="flex items-baseline gap-4">
     <a href="/magazine/{{ mag.id }}{% if q %}?q={{ q|urlencode }}{% endif %}"
        class="caps-soft hover:text-[var(--accent)]">all pages</a>
+    <button type="button" id="rotate-btn"
+            class="caps caps-soft hover:text-[var(--accent)]"
+            title="Rotate 90° clockwise (press R)">rotate ↻</button>
     <span class="caps-soft italic hidden md:inline" style="letter-spacing:0.05em;">
-      use ← / → to flip
+      ← / → to flip · r to rotate
     </span>
   </div>
   <div>
@@ -86,6 +112,42 @@
   (function () {
     var prev = {{ _prev_href|tojson }};
     var next = {{ _next_href|tojson }};
+    var frame = document.getElementById("page-frame");
+    var img = document.getElementById("page-img");
+    var rotateBtn = document.getElementById("rotate-btn");
+
+    // Rotation is a per-page convenience for the rare scan that came in sideways.
+    // We keep the wrapper's aspect-ratio in sync with the rotated visual, and
+    // scale the image so its rotated bounding box still fills the page width.
+    function applyRotation() {
+      if (!frame || !img || !img.naturalWidth || !img.naturalHeight) return;
+      var r = ((parseInt(frame.dataset.rotation, 10) || 0) % 360 + 360) % 360;
+      var nw = img.naturalWidth, nh = img.naturalHeight;
+      // For 90/270 we swap the frame's aspect, then scale by nw/nh so the
+      // rotated image's visual width still matches the container width.
+      // The leading translate(-50%, -50%) pairs with top/left: 50% on the
+      // image so its center is anchored to the frame's center.
+      var scale = (r === 90 || r === 270) ? (nw / nh) : 1;
+      frame.style.aspectRatio = (r === 90 || r === 270)
+        ? (nh + " / " + nw)
+        : (nw + " / " + nh);
+      img.style.transform =
+        "translate(-50%, -50%) rotate(" + r + "deg) scale(" + scale + ")";
+    }
+
+    function rotate90() {
+      if (!frame) return;
+      var r = ((parseInt(frame.dataset.rotation, 10) || 0) + 90) % 360;
+      frame.dataset.rotation = r;
+      applyRotation();
+    }
+
+    if (img) {
+      if (img.complete && img.naturalWidth) applyRotation();
+      else img.addEventListener("load", applyRotation);
+    }
+    if (rotateBtn) rotateBtn.addEventListener("click", rotate90);
+
     document.addEventListener("keydown", function (e) {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       var t = e.target;
@@ -96,6 +158,9 @@
       } else if (e.key === "ArrowRight" && next) {
         e.preventDefault();
         window.location.href = next;
+      } else if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        rotate90();
       }
     });
   })();
