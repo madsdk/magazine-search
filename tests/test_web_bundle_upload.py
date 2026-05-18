@@ -536,6 +536,50 @@ def test_manifest_id_nested_subpath_is_rejected(tmp_path):
     assert list(final_root.iterdir()) == []
 
 
+def test_oversized_body_rejected_by_middleware_before_route(admin_client, tmp_path, monkeypatch):
+    """The body cap must fire at the ASGI layer, before Starlette's multipart
+    parser has a chance to spool gigabytes of attacker-supplied data to disk.
+
+    We verify this two ways:
+      1. The response is plain text (from the middleware), not the route's
+         HTML error template — proving the route never ran.
+      2. We patch `extract_and_stage` to record calls; it must not be called.
+    """
+    monkeypatch.setenv("MAGSEARCH_MAX_UPLOAD_BYTES", "100")
+    from magsearch.web import deps as _deps
+    _deps._session_factory_for.cache_clear()
+
+    calls: list[object] = []
+    from magsearch.web import routes_admin
+    real_extract = routes_admin.extract_and_stage
+
+    def spy_extract(*a, **kw):
+        calls.append((a, kw))
+        return real_extract(*a, **kw)
+
+    monkeypatch.setattr(routes_admin, "extract_and_stage", spy_extract)
+
+    client, _ = admin_client
+    big = tmp_path / "big.zip"
+    big.write_bytes(b"x" * 5_000)
+
+    token = _get_csrf(client)
+    with big.open("rb") as fp:
+        resp = client.post(
+            "/admin/issues/upload",
+            data={"csrf_token": token},
+            files={"bundle": ("big.zip", fp, "application/zip")},
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 413
+    # Middleware response is plain text; the route would have rendered HTML.
+    assert resp.headers.get("content-type", "").startswith("text/plain")
+    assert "exceeds maximum size" in resp.text
+    # Route never ran → extract_and_stage was never invoked.
+    assert calls == []
+
+
 def test_corrupt_manifest_member_returns_friendly_error(tmp_path, monkeypatch):
     """zipfile.BadZipFile can fire during a member *read* (bad CRC, truncated
     deflate stream), not just at open time. Those failures must map to a
