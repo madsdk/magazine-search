@@ -218,5 +218,12 @@ def _verify_checksums(bundle_dir: Path, manifest: Manifest) -> None:
             raise BundleUploadError(f"checksum path escapes bundle: {c.path!r}")
         if not path.exists():
             raise BundleUploadError(f"file listed in manifest is missing: {c.path}")
+        # content_hash() opens the path with read_bytes / hashlib; a directory
+        # or other non-regular file would raise IsADirectoryError or OSError
+        # and surface as a 500. Reject up front instead.
+        if not path.is_file():
+            raise BundleUploadError(
+                f"manifest checksum target is not a regular file: {c.path}"
+            )
         if content_hash(path) != c.sha256:
             raise BundleUploadError(f"checksum mismatch: {c.path}")

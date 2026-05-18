@@ -579,6 +579,27 @@ def test_checksum_path_with_parent_traversal_is_rejected(tmp_path):
     assert published == []
 
 
+def test_checksum_path_pointing_to_directory_is_rejected(tmp_path):
+    """A checksum entry whose path resolves to a directory inside the bundle
+    (e.g. 'pages') must produce a BundleUploadError, not an uncaught
+    IsADirectoryError when content_hash() tries to read it.
+    """
+    src = make_bundle(tmp_path / "src")
+    zip_path = _zip_with_doctored_checksums(
+        src,
+        extra_checksums=[{"path": "pages", "sha256": "0" * 64}],
+        zip_path=tmp_path / "evil.zip",
+    )
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    with pytest.raises(BundleUploadError, match="not a regular file"):
+        extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+
+    published = [p for p in final_root.iterdir() if not p.name.startswith(".upload-")]
+    assert published == []
+
+
 def test_checksum_path_absolute_is_rejected(tmp_path):
     """An absolute path in manifest.checksums must be rejected before hashing.
 
