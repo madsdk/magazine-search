@@ -18,8 +18,11 @@ def test_settings_from_env(monkeypatch):
     assert s.bundles_dir == Path("/var/bundles")
 
 
-def test_settings_max_upload_bytes_default(monkeypatch):
-    # Reset overrides so the default takes effect.
+def test_settings_max_upload_bytes_default(tmp_path, monkeypatch):
+    # Settings reads ".env" from CWD as well as the process environment.
+    # Mirror test_settings_defaults and chdir into an empty tmp dir so a
+    # repo-local or CI .env can't leak in and override the default.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MAGSEARCH_MAX_UPLOAD_BYTES", raising=False)
     from magsearch.settings import Settings
     s = Settings()
