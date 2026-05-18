@@ -58,6 +58,22 @@ def extract_and_stage(
             mb = max_uncompressed_bytes // (1024 * 1024)
             raise BundleUploadError(f"bundle would exceed max size of {mb} MB")
 
+        # manifest.id is attacker-controlled. Require it to resolve to a
+        # direct child of bundles_dir before using it in any filesystem path,
+        # so that "../escape", "/etc/foo", "nested/sub", "." etc. can never
+        # publish or rename a bundle outside the configured root.
+        resolved_root = bundles_dir.resolve()
+        try:
+            resolved_target = (bundles_dir / manifest.id).resolve()
+        except (ValueError, OSError):
+            raise BundleUploadError(
+                f"manifest id {manifest.id!r} is not a valid path component"
+            )
+        if resolved_target.parent != resolved_root or resolved_target == resolved_root:
+            raise BundleUploadError(
+                f"manifest id {manifest.id!r} must be a simple name under the bundles directory"
+            )
+
         existing = bundles_dir / manifest.id
         if existing.exists():
             existing_manifest_path = existing / "manifest.json"

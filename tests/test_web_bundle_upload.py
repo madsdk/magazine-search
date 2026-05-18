@@ -444,3 +444,70 @@ def test_cross_filesystem_rename_is_rejected_with_friendly_error(tmp_path, monke
     # Staging dir cleaned up.
     leftovers = [p.name for p in final_root.iterdir() if p.name.startswith(".upload-")]
     assert leftovers == []
+
+
+def _zip_with_doctored_id(src_bundle: Path, doctored_id: str, zip_path: Path) -> Path:
+    """Re-zip a real bundle Shape B (contents at zip root) after overwriting
+    its manifest id. We use Shape B so the on-disk directory does not need to
+    be renamed to the (potentially malicious) id."""
+    manifest = json.loads((src_bundle / "manifest.json").read_text())
+    manifest["id"] = doctored_id
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest))
+        for path in sorted(src_bundle.rglob("*")):
+            if path.is_dir():
+                continue
+            rel = path.relative_to(src_bundle).as_posix()
+            if rel == "manifest.json":
+                continue
+            zf.write(path, arcname=rel)
+    return zip_path
+
+
+def test_manifest_id_parent_traversal_is_rejected(tmp_path):
+    """manifest.id == '../escape' must not publish a bundle outside bundles_dir."""
+    src = make_bundle(tmp_path / "src")
+    zip_path = _zip_with_doctored_id(src, "../escape", tmp_path / "evil.zip")
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    with pytest.raises(BundleUploadError, match="simple name|valid path component"):
+        extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+
+    # No published bundle and no escape: nothing outside final_root was written.
+    assert list(final_root.iterdir()) == []
+    assert not (final_root.parent / "escape").exists()
+
+
+def test_manifest_id_absolute_path_is_rejected(tmp_path):
+    """manifest.id == '/abs/path' must not publish a bundle at that absolute path.
+
+    We point the absolute path at a sentinel under tmp_path so the test stays
+    hermetic even if the validation regressed and the bundle did get written.
+    """
+    src = make_bundle(tmp_path / "src")
+    sentinel = tmp_path / "sentinel"
+    zip_path = _zip_with_doctored_id(src, str(sentinel), tmp_path / "evil.zip")
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    with pytest.raises(BundleUploadError, match="simple name|valid path component"):
+        extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+
+    assert not sentinel.exists()
+    assert list(final_root.iterdir()) == []
+
+
+def test_manifest_id_nested_subpath_is_rejected(tmp_path):
+    """manifest.id == 'nested/sub' resolves to a path under bundles_dir but
+    not as a *direct* child. bulk_import walks `bundles_dir/<id>/` flat, so a
+    nested id would break that contract — reject up front."""
+    src = make_bundle(tmp_path / "src")
+    zip_path = _zip_with_doctored_id(src, "nested/sub", tmp_path / "evil.zip")
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+
+    with pytest.raises(BundleUploadError, match="simple name"):
+        extract_and_stage(zip_path, final_root, max_uncompressed_bytes=_2_GB)
+
+    assert list(final_root.iterdir()) == []
