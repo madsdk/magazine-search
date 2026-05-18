@@ -4,7 +4,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from magsearch.settings import get_settings
 from magsearch.web.deps import csrf_token
-from magsearch.web.middleware import AuthMiddleware
+from magsearch.web.middleware import AuthMiddleware, BodySizeLimitMiddleware
 from magsearch.web.routes import router as content_router
 from magsearch.web.routes_admin import router as admin_router
 from magsearch.web.routes_auth import router as auth_router
@@ -36,7 +36,9 @@ def create_app() -> FastAPI:
     secret = settings.session_secret or "dev-insecure-secret-do-not-use-in-production"
 
     # Middleware added LAST runs OUTERMOST. SessionMiddleware must wrap
-    # AuthMiddleware so the gate can read scope["session"].
+    # AuthMiddleware so the gate can read scope["session"]. BodySizeLimit
+    # must be OUTERMOST so it terminates oversized request bodies before
+    # any other layer (including FastAPI's multipart parser) reads them.
     app.add_middleware(AuthMiddleware)
     app.add_middleware(
         SessionMiddleware,
@@ -46,6 +48,7 @@ def create_app() -> FastAPI:
         https_only=False,
         max_age=60 * 60 * 24 * 14,
     )
+    app.add_middleware(BodySizeLimitMiddleware)
 
     app.include_router(auth_router)
     app.include_router(admin_router)

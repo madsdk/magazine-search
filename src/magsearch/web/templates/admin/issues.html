@@ -1,11 +1,15 @@
 {% extends "admin/admin_base.html" %}
 
 {% block admin_content %}
-<form method="get" action="/admin/issues" class="mb-8 flex items-baseline gap-3">
-  <input type="text" name="q" value="{{ q | default('', true) }}"
-         placeholder="filter by title or issue…" class="field-small w-80">
-  <button class="mark-go">go ↵</button>
-</form>
+<div class="mb-8 flex items-baseline gap-6">
+  <form method="get" action="/admin/issues" class="flex items-baseline gap-3">
+    <input type="text" name="q" value="{{ q | default('', true) }}"
+           placeholder="filter by title or issue…" class="field-small w-80">
+    <button class="mark-go">go ↵</button>
+  </form>
+  <span class="flex-1"></span>
+  <a href="/admin/issues/upload" class="mark-go">upload bundle ↑</a>
+</div>
 
 <table class="w-full text-left">
   <thead>

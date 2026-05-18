@@ -206,6 +206,26 @@ magsearch import /data/bundles/byte-1985-12
 
 The web app picks up the new magazine immediately.
 
+## Single-issue upload via the web UI
+
+For one-off issues, the admin web UI offers a faster path than `rsync` +
+`magsearch import`. After producing a bundle on the GPU box:
+
+```bash
+cd ./bundles
+zip -r byte-1985-12.zip byte-1985-12/
+```
+
+…sign in to the admin UI as an admin, go to **Issues → Upload bundle**, and
+pick the zip. The server validates the manifest, verifies the per-file
+checksums, stages the bundle into `bundles_dir/<id>/`, and runs the same
+`import_bundle()` the CLI uses. Re-uploading the same zip is a no-op (you'll
+land on the existing issue's edit page).
+
+The bulk flow (`bulk-ingest` + `rsync` + `bulk-import`) is still the right
+choice for ingesting many issues at once — the web upload is meant for a
+single bundle at a time.
+
 ## Bulk ingestion
 
 For ingesting a whole collection (hundreds or thousands of files), drive the
@@ -322,6 +342,8 @@ at `/admin` (dashboard, issue editor, user management, app config). Whether
 visitors must log in is itself a config toggle (`require_login` in the admin
 config page) — leave it off for a fully public archive, turn it on to gate the
 site behind a password.
+The single-issue **Upload bundle** action under `/admin/issues` requires an
+admin session regardless of the public/private toggle.
 
 Set `MAGSEARCH_SESSION_SECRET` to any non-empty random string in production.
 If unset, the app falls back to a hard-coded insecure dev value — fine for
@@ -356,6 +378,7 @@ file in the working directory). All names are prefixed with `MAGSEARCH_`.
 | `MAGSEARCH_DATABASE_URL` | `sqlite:///./data/magsearch.db` | SQLAlchemy URL. Stick with SQLite. |
 | `MAGSEARCH_BUNDLES_DIR` | `./data/bundles` | Where the web app looks up page images and originals. |
 | `MAGSEARCH_SESSION_SECRET` | _(empty → insecure dev fallback)_ | Signs login session cookies. Set to a long random string in production. |
+| `MAGSEARCH_MAX_UPLOAD_BYTES` | `2147483648` | Cap on web bundle upload size, in bytes. Applies to both multipart body and uncompressed bundle contents. |
 
 Inside the Docker image the first two are pre-set to `sqlite:////data/magsearch.db`
 and `/data/bundles`. Pass `MAGSEARCH_SESSION_SECRET` for any non-throwaway
