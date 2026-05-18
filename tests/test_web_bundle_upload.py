@@ -498,6 +498,29 @@ def test_manifest_id_absolute_path_is_rejected(tmp_path):
     assert list(final_root.iterdir()) == []
 
 
+def test_oversized_manifest_is_rejected_before_decompression(tmp_path):
+    """A manifest.json that decompresses to more than the per-entry cap must
+    be rejected on the header check, before the bytes are inflated into memory.
+
+    We craft a zip whose manifest.json is mostly NUL bytes — those compress to
+    a tiny on-disk entry under ZIP_DEFLATED, but ZipInfo.file_size reflects
+    the full uncompressed size. If the cap check were missing, zf.read on
+    this entry would allocate the whole 80 MB.
+    """
+    z = tmp_path / "manifest-bomb.zip"
+    big = b"\x00" * (80 * 1024 * 1024)  # 80 MB, > the 64 MB manifest cap
+    with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", big)
+    # Sanity check the fixture: heavily compressed on disk.
+    assert z.stat().st_size < 1024 * 1024, "fixture didn't compress as expected"
+
+    final_root = tmp_path / "final"
+    final_root.mkdir()
+    with pytest.raises(BundleUploadError, match="manifest.json is larger than"):
+        extract_and_stage(z, final_root, max_uncompressed_bytes=_2_GB)
+    assert list(final_root.iterdir()) == []
+
+
 def test_manifest_id_nested_subpath_is_rejected(tmp_path):
     """manifest.id == 'nested/sub' resolves to a path under bundles_dir but
     not as a *direct* child. bulk_import walks `bundles_dir/<id>/` flat, so a

@@ -27,6 +27,14 @@ from magsearch.ingest.ids import content_hash
 from magsearch.manifest import Manifest
 
 
+# Hard cap on the manifest.json entry, independent of the bundle-wide
+# max_uncompressed_bytes setting. A legitimate manifest is well under this
+# even for a thousand-page magazine, so a tightly compressed manifest entry
+# that decompresses to hundreds of megabytes (a zip-bomb targeted at this
+# one read) gets rejected on the header check before any decompression.
+_MAX_MANIFEST_BYTES = 64 * 1024 * 1024  # 64 MB
+
+
 class BundleUploadError(Exception):
     """Raised when an uploaded zip is rejected. Message is safe to display."""
 
@@ -51,12 +59,16 @@ def extract_and_stage(
 
     with zf:
         prefix = _resolve_bundle_prefix(zf)
-        manifest = _read_manifest(zf, prefix)
 
+        # Size caps fire BEFORE the manifest is read so a maliciously
+        # compressed manifest entry (small on disk, huge after inflate)
+        # can never force the process to allocate that much memory.
         total = sum(info.file_size for info in zf.infolist())
         if total > max_uncompressed_bytes:
             mb = max_uncompressed_bytes // (1024 * 1024)
             raise BundleUploadError(f"bundle would exceed max size of {mb} MB")
+
+        manifest = _read_manifest(zf, prefix)
 
         # manifest.id is attacker-controlled. Require it to resolve to a
         # direct child of bundles_dir before using it in any filesystem path,
@@ -127,12 +139,34 @@ def _resolve_bundle_prefix(zf: zipfile.ZipFile) -> str:
 
 
 def _read_manifest(zf: zipfile.ZipFile, prefix: str) -> Manifest:
+    name = f"{prefix}manifest.json"
     try:
-        raw = zf.read(f"{prefix}manifest.json")
+        info = zf.getinfo(name)
     except KeyError:
         raise BundleUploadError("manifest.json missing from zip")
+
+    # Reject on the declared size first — cheap, no decompression.
+    if info.file_size > _MAX_MANIFEST_BYTES:
+        raise BundleUploadError(
+            f"manifest.json is larger than the allowed {_MAX_MANIFEST_BYTES // (1024 * 1024)} MB"
+        )
+
+    # Then stream-read with the same hard cap so a lying header (declared
+    # small, actually huge) can't sneak past either.
+    buf = bytearray()
+    with zf.open(info) as f:
+        while True:
+            chunk = f.read(64 * 1024)
+            if not chunk:
+                break
+            buf.extend(chunk)
+            if len(buf) > _MAX_MANIFEST_BYTES:
+                raise BundleUploadError(
+                    f"manifest.json is larger than the allowed {_MAX_MANIFEST_BYTES // (1024 * 1024)} MB"
+                )
+
     try:
-        return Manifest.model_validate_json(raw)
+        return Manifest.model_validate_json(bytes(buf))
     except Exception as exc:  # pydantic ValidationError or json error
         raise BundleUploadError(f"manifest.json is invalid: {exc}")
 
