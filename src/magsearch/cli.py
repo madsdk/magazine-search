@@ -300,6 +300,14 @@ def db_downgrade(revision: str = typer.Argument("-1")) -> None:
     command.downgrade(_alembic_cfg(), revision)
 
 
+@app.command("desktop")
+def desktop_cmd() -> None:
+    """Launch magsearch as a desktop app (pywebview)."""
+    # Deferred import: pywebview is only required for the desktop subcommand.
+    from magsearch.desktop import main as desktop_main
+    desktop_main()
+
+
 def _open_session():
     settings = get_settings()
     return make_session_factory(make_engine(settings.database_url))

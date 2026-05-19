@@ -44,6 +44,7 @@ dev = [
 
 [project.scripts]
 magsearch = "magsearch.cli:app"
+magsearch-desktop = "magsearch.desktop:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/magsearch"]
