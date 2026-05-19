@@ -10,10 +10,15 @@
   <nav class="caps flex flex-wrap gap-6 mt-4">
     <a href="/admin">Dashboard</a>
     <a href="/admin/issues">Issues</a>
-    <a href="/admin/users">Users</a>
-    <a href="/admin/config">Settings</a>
+    {% if not auth_enabled %}
+      <a href="/import">Import</a>
+    {% endif %}
+    {% if auth_enabled %}
+      <a href="/admin/users">Users</a>
+      <a href="/admin/config">Settings</a>
+    {% endif %}
     <span class="flex-1"></span>
-    {% if current_user() %}
+    {% if auth_enabled and current_user() %}
       <span class="caps-soft">signed in as <em class="link-italic">{{ current_user().username }}</em></span>
       <form method="post" action="/logout" class="inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -249,7 +249,7 @@
                class="field-small w-56">
         <button class="mark-go">go ↵</button>
       </form>
-      {% if current_user() %}
+      {% if auth_enabled and current_user() %}
         <form method="post" action="/logout" class="caps caps-soft">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="link-italic">sign out</button>
