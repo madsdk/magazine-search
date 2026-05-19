@@ -110,6 +110,43 @@ def _start_server(port: int) -> threading.Thread:
     return thread
 
 
+def _open_window_or_fallback(url: str) -> None:
+    """Open a pywebview window; if no GUI backend is available
+    (no Qt on Linux, no Cocoa on a headless Mac, etc.), open the user's
+    default browser instead and block so uvicorn keeps serving."""
+    try:
+        import webview  # pywebview
+        from webview.errors import WebViewException
+    except ImportError as e:
+        print(
+            f"[desktop] pywebview not importable ({e}); "
+            f"opening {url} in default browser instead.",
+            file=sys.stderr,
+        )
+        _serve_in_browser(url)
+        return
+
+    try:
+        webview.create_window("Magazine Search", url, width=1200, height=900)
+        webview.start()
+    except WebViewException as e:
+        print(
+            f"[desktop] pywebview could not start ({e}); "
+            f"opening {url} in default browser instead.",
+            file=sys.stderr,
+        )
+        _serve_in_browser(url)
+
+
+def _serve_in_browser(url: str) -> None:
+    import webbrowser
+
+    webbrowser.open(url)
+    # Block forever so the daemon uvicorn thread stays alive while the
+    # user has the browser tab open. Ctrl+C terminates the process.
+    threading.Event().wait()
+
+
 def main() -> None:
     _prepare_data_dir()
     _migrate()
@@ -118,10 +155,7 @@ def main() -> None:
     _start_server(port)
     url = f"http://127.0.0.1:{port}/"
     _wait_for_server(url)
-
-    import webview  # pywebview
-    webview.create_window("Magazine Search", url, width=1200, height=900)
-    webview.start()
+    _open_window_or_fallback(url)
 
 
 if __name__ == "__main__":

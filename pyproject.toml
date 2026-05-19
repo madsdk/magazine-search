@@ -34,6 +34,14 @@ ingest = [
 desktop = [
     "pywebview>=5.0",
     "pyinstaller>=6.0",
+    # pywebview on Linux has no built-in backend — without Qt or GTK
+    # bindings it raises WebViewException at start(). Qt bundles cleanly
+    # with PyInstaller (GTK relies on system PyGObject + WebKit2GTK), so
+    # we ship Qt. macOS and Windows use Cocoa / WebView2 respectively,
+    # both pulled in by pywebview itself.
+    "qtpy>=2.4; sys_platform == 'linux'",
+    "PyQt5>=5.15; sys_platform == 'linux'",
+    "PyQtWebEngine>=5.15; sys_platform == 'linux'",
 ]
 dev = [
     "pytest>=8.0",

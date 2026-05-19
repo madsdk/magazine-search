@@ -481,3 +481,15 @@ pyinstaller magsearch.spec --noconfirm
 ```
 
 Build per OS on the OS itself — PyInstaller does not cross-compile.
+
+### GUI backends
+
+pywebview has no built-in window backend on Linux, so the `[desktop]`
+extra also pulls in Qt (PyQt5 + qtpy + PyQtWebEngine) on Linux only.
+PyInstaller bundles those into the binary. macOS uses Cocoa and Windows
+uses WebView2 — both come with pywebview itself.
+
+If the GUI bindings can't load at runtime (e.g. running the Linux build
+on a system without a display server, or hitting a missing system lib),
+the launcher falls back to opening the URL in the user's default browser
+and keeps uvicorn serving in the background.
