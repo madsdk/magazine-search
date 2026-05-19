@@ -6,13 +6,6 @@ def test_magazines_lists_all(app_client):
     assert "Compute" in resp.text
 
 
-def test_magazines_filter_by_publisher(app_client):
-    client, _ = app_client
-    resp = client.get("/magazines", params={"publisher": "McGraw-Hill"})
-    assert "Byte" in resp.text
-    assert "Compute" not in resp.text
-
-
 def test_magazine_detail_shows_pages(app_client):
     client, _ = app_client
     resp = client.get("/magazine/byte-1985-12")

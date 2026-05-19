@@ -15,18 +15,6 @@
   </div>
 </section>
 
-{% if publishers %}
-<div class="rule"></div>
-<section class="py-5 flex items-baseline gap-3 flex-wrap">
-  <span class="caps caps-soft mr-2">Filter by publisher</span>
-  <a href="/magazines" class="tag {% if not active %}tag-active{% endif %}">all</a>
-  {% for p in publishers %}
-    <a href="/magazines?publisher={{ p|urlencode }}"
-       class="tag {% if active == p %}tag-active{% endif %}">{{ p }}</a>
-  {% endfor %}
-</section>
-{% endif %}
-
 <div class="rule-thick"></div>
 
 {# ─────────────────────── titles grid ─────────────────────── #}

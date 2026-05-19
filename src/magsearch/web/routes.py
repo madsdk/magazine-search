@@ -137,14 +137,11 @@ def search_route(
 @router.get("/magazines", response_class=HTMLResponse)
 def magazines_index(
     request: Request,
-    publisher: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     stmt = select(Magazine).order_by(
         Magazine.title, Magazine.publication_date.asc().nullslast()
     )
-    if publisher:
-        stmt = stmt.where(Magazine.publisher == publisher)
     rows = db.scalars(stmt).all()
     titles = []
     for title, group in groupby(rows, key=lambda m: m.title):
@@ -156,13 +153,10 @@ def magazines_index(
             "cover_path": earliest.cover_path,
             "publisher": earliest.publisher,
         })
-    all_publishers = db.scalars(
-        select(Magazine.publisher).where(Magazine.publisher.is_not(None)).distinct()
-    ).all()
     return _TEMPLATES.TemplateResponse(
         request,
         "magazines.html",
-        {"titles": titles, "publishers": all_publishers, "active": publisher},
+        {"titles": titles},
     )
 
 
