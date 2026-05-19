@@ -28,11 +28,8 @@
 </section>
 
 {# ─────────────────────── search form ─────────────────────── #}
-<section class="pb-8 grid grid-cols-12 gap-x-8 items-end">
-  <div class="col-span-12 md:col-span-2 caps caps-soft pb-3">
-    Find a&nbsp;phrase
-  </div>
-  <form action="/search" method="get" class="col-span-12 md:col-span-10">
+<section class="pb-8">
+  <form action="/search" method="get">
     {# Preserve current display preferences across re-submits. #}
     <input type="hidden" name="view" value="{{ view }}">
     <input type="hidden" name="sort" value="{{ sort }}">
@@ -40,7 +37,7 @@
     <div class="flex items-end gap-4">
       <input type="text" name="q"
              value="{{ q }}"
-             placeholder="a name, a title, a turn of phrase…"
+             placeholder="Search…"
              class="field-editorial flex-1"
              autocomplete="off"
              autofocus>
