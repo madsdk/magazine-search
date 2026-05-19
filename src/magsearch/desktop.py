@@ -41,14 +41,19 @@ def _prepare_data_dir() -> Path:
     bundles_dir.mkdir(parents=True, exist_ok=True)
 
     # Configure the rest of the package via env vars, BEFORE anything imports
-    # magsearch.settings. setdefault so a developer who exports
-    # MAGSEARCH_DATABASE_URL for testing can still override.
+    # magsearch.settings. DB url and bundles dir use setdefault so a developer
+    # who exports them for testing can still override.
     os.environ.setdefault(
         "MAGSEARCH_DATABASE_URL",
         f"sqlite:///{data_dir / 'magsearch.db'}",
     )
     os.environ.setdefault("MAGSEARCH_BUNDLES_DIR", str(bundles_dir))
-    os.environ.setdefault("MAGSEARCH_AUTH_ENABLED", "false")
+    # Auth is forced off, not setdefault: the desktop launcher creates a
+    # password-less `local` admin and routes through it. If an inherited
+    # MAGSEARCH_AUTH_ENABLED=true leaked in, the login gate would activate
+    # and lock the user out of their own app, since the synthesized local
+    # user has no usable password.
+    os.environ["MAGSEARCH_AUTH_ENABLED"] = "false"
     return data_dir
 
 
