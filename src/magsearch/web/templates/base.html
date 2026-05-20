@@ -25,6 +25,18 @@
     color: var(--ink);
   }
 
+  /* Strip default browser button chrome so utility classes (.mark-go,
+     .link-italic, .caps, etc.) render the same on <a> and <button>.
+     Buttons that need a filled background (.btn-editorial) set their own. */
+  button {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
   /* Subtle paper grain — a hand-drawn dot pattern, very low contrast. */
   body {
     font-family: "Newsreader", "Iowan Old Style", Georgia, serif;
@@ -129,10 +141,6 @@
     color: var(--accent);
     font-size: 0.95rem;
     letter-spacing: 0.02em;
-    background: transparent;
-    border: 0;
-    padding: 0;
-    cursor: pointer;
   }
   .mark-go:hover { text-decoration: underline; }
 
@@ -203,10 +211,6 @@
     font-family: "Newsreader", Georgia, serif;
     font-style: italic;
     color: var(--ink-soft);
-    background: transparent;
-    border: 0;
-    padding: 0;
-    cursor: pointer;
   }
   .link-italic:hover { color: var(--accent); }
 
