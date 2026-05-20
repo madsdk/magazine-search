@@ -73,15 +73,20 @@
 </figure>
 
 <style>
-  /* The frame's aspect-ratio is set by JS to match the *visual* aspect for
-     the current rotation. The image is absolutely positioned so its center
-     always coincides with the frame's center — without this, rotating into
-     the inverted aspect would clip half the image (the image's layout box
-     stays at its natural height and overflows the frame). */
+  /* The frame's visual height is set by JS via padding-bottom to match the
+     visual aspect for the current rotation. We use the padding-bottom
+     percentage trick (relative to the containing block's width) instead of
+     CSS aspect-ratio because the desktop build ships QtWebEngine 5.15 /
+     Chromium 87, which predates aspect-ratio support (Chromium 88+).
+     The image is absolutely positioned so its center always coincides with
+     the frame's center — without this, rotating into the inverted aspect
+     would clip half the image (the image's layout box stays at its natural
+     height and overflows the frame). */
   #page-frame {
     width: 100%;
+    height: 0;
     position: relative;
-    transition: aspect-ratio 0.25s ease;
+    transition: padding-bottom 0.25s ease;
     user-select: none;
   }
   #page-frame.is-zoomed { cursor: grab; }
@@ -156,16 +161,19 @@
     }
 
     // Apply both rotation and zoom in a single transform string. We also
-    // resize the frame's aspect-ratio to match the rotated visual.
+    // resize the frame's visual height (via padding-bottom %) to match the
+    // rotated visual.
     function applyTransform() {
       if (!frame || !img || !img.naturalWidth || !img.naturalHeight) return;
       var r = ((parseInt(frame.dataset.rotation, 10) || 0) % 360 + 360) % 360;
       var nw = img.naturalWidth, nh = img.naturalHeight;
       var rotScale = (r === 90 || r === 270) ? (nw / nh) : 1;
       var z = currentZoom();
-      frame.style.aspectRatio = (r === 90 || r === 270)
-        ? (nh + " / " + nw)
-        : (nw + " / " + nh);
+      // padding-bottom % is relative to the containing block's width, so
+      // (height / width) gives the right visual aspect. For 90°/270° the
+      // visual aspect is inverted (nw/nh instead of nh/nw).
+      var ratio = (r === 90 || r === 270) ? (nw / nh) : (nh / nw);
+      frame.style.paddingBottom = (ratio * 100) + "%";
       clampPan();
       frame.classList.toggle("is-zoomed", z > 1);
       img.style.transform =

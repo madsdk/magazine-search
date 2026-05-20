@@ -128,7 +128,12 @@ def _open_window_or_fallback(url: str) -> None:
 
     try:
         webview.create_window("Magazine Search", url, width=1200, height=900)
-        webview.start()
+        # Pin the GUI backend per-platform so pywebview doesn't probe other
+        # backends and print their import errors. On Linux we ship Qt via the
+        # [desktop] extra (PyGObject/GTK is not bundled). macOS uses Cocoa,
+        # Windows uses EdgeChromium; both are pywebview defaults.
+        gui = "qt" if sys.platform.startswith("linux") else None
+        webview.start(gui=gui)
     except WebViewException as e:
         print(
             f"[desktop] pywebview could not start ({e}); "

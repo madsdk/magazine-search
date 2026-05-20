@@ -14,8 +14,13 @@ datas = [
     (str(repo / "alembic"), "alembic"),
     (str(repo / "src" / "magsearch" / "web" / "templates"),
      "magsearch/web/templates"),
+    (str(repo / "src" / "magsearch" / "web" / "static"),
+     "magsearch/web/static"),
 ]
 datas += collect_data_files("magsearch", includes=["**/*.html"])
+datas += collect_data_files(
+    "magsearch", includes=["**/static/*", "**/static/**/*"]
+)
 
 hiddenimports = []
 hiddenimports += collect_submodules("uvicorn")

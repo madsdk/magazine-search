@@ -39,9 +39,14 @@ desktop = [
     # with PyInstaller (GTK relies on system PyGObject + WebKit2GTK), so
     # we ship Qt. macOS and Windows use Cocoa / WebView2 respectively,
     # both pulled in by pywebview itself.
+    #
+    # Pin to Qt 6 (>=6.5 LTS): Qt 5.15's bundled QtWebEngine is Chromium 87
+    # (Dec 2020), which is missing many modern CSS/JS features. Qt 6.5 ships
+    # Chromium 108, Qt 6.8 ships Chromium 122 — picking up whichever wheel
+    # the resolver chooses is fine since both are leagues ahead of 87.
     "qtpy>=2.4; sys_platform == 'linux'",
-    "PyQt5>=5.15; sys_platform == 'linux'",
-    "PyQtWebEngine>=5.15; sys_platform == 'linux'",
+    "PyQt6>=6.5; sys_platform == 'linux'",
+    "PyQt6-WebEngine>=6.5; sys_platform == 'linux'",
 ]
 dev = [
     "pytest>=8.0",

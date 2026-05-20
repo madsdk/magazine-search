@@ -482,10 +482,26 @@ pyinstaller magsearch.spec --noconfirm
 
 Build per OS on the OS itself — PyInstaller does not cross-compile.
 
+### Frontend assets (Tailwind + fonts)
+
+The desktop bundle is fully offline: Tailwind CSS and the Fraunces/Newsreader
+variable fonts are vendored under `src/magsearch/web/static/` and committed.
+Regenerate them when templates pick up new utility classes or when the font
+spec changes:
+
+```bash
+# Rebuild only the classes the templates actually use:
+npx tailwindcss@3 -i src/magsearch/web/static/tailwind.input.css \
+                  -o src/magsearch/web/static/tailwind.css --minify
+
+# Re-download woff2 files from Google Fonts:
+python scripts/vendor_fonts.py
+```
+
 ### GUI backends
 
 pywebview has no built-in window backend on Linux, so the `[desktop]`
-extra also pulls in Qt (PyQt5 + qtpy + PyQtWebEngine) on Linux only.
+extra also pulls in Qt 6 (PyQt6 + qtpy + PyQt6-WebEngine) on Linux only.
 PyInstaller bundles those into the binary. macOS uses Cocoa and Windows
 uses WebView2 — both come with pywebview itself.
 

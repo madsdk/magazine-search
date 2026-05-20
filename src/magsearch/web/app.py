@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from jinja2 import pass_context
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -61,6 +64,10 @@ def create_app() -> FastAPI:
         from magsearch.web.routes_import import router as import_router
         app.include_router(import_router)
     app.include_router(content_router)
+
+    # Vendored Tailwind CSS + Google Fonts so the desktop bundle runs offline.
+    static_dir = Path(__file__).resolve().parent / "static"
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     _wire_jinja_globals(settings.auth_enabled)
     return app
