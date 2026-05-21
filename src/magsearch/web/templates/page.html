@@ -67,7 +67,7 @@
 
 {# ─────────────────────── page image ─────────────────────── #}
 <figure class="py-10">
-  <div id="page-frame" class="cover-frame inline-block w-full" data-rotation="0">
+  <div id="page-frame" class="cover-frame inline-block w-full is-initial" data-rotation="0">
     <img id="page-img" src="/bundle/{{ page.image_path }}" alt="page {{ page.page_number }}">
   </div>
 </figure>
@@ -91,7 +91,9 @@
   }
   #page-frame.is-zoomed { cursor: grab; }
   #page-frame.is-panning { cursor: grabbing; }
-  #page-frame.is-panning img { transition: none; }
+  #page-frame.is-panning img,
+  #page-frame.is-initial,
+  #page-frame.is-initial img { transition: none; }
   #page-frame img {
     position: absolute;
     top: 50%;
@@ -202,9 +204,18 @@
       applyTransform();
     }
 
+    function enableTransitions() {
+      // Two rAFs: first lets the just-applied transform commit without
+      // animating, second flips the flag so the next change does animate.
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          if (frame) frame.classList.remove("is-initial");
+        });
+      });
+    }
     if (img) {
-      if (img.complete && img.naturalWidth) applyTransform();
-      else img.addEventListener("load", applyTransform);
+      if (img.complete && img.naturalWidth) { applyTransform(); enableTransitions(); }
+      else img.addEventListener("load", function () { applyTransform(); enableTransitions(); });
     }
     if (rotateBtn) rotateBtn.addEventListener("click", rotate90);
     if (zoomInBtn) zoomInBtn.addEventListener("click", function () { setZoom(zoomIdx + 1); });
