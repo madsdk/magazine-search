@@ -1,6 +1,38 @@
 import hashlib
+import secrets
+from datetime import datetime
 
 import bcrypt
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from magsearch.models import User
+
+LOCAL_ADMIN_USERNAME = "local"
+
+
+def ensure_local_admin(db: Session) -> User:
+    """Return the desktop-mode 'local' admin user, creating it if missing.
+
+    Called when auth_enabled is False so that route handlers depending on
+    `require_admin` still resolve. The password hash is for an unguessable
+    random string — there is no intended login path; the user only exists to
+    populate `request.state.current_user`.
+    """
+    user = db.scalar(select(User).where(User.username == LOCAL_ADMIN_USERNAME))
+    if user is not None:
+        return user
+    user = User(
+        username=LOCAL_ADMIN_USERNAME,
+        password_hash=hash_password(secrets.token_urlsafe(32)),
+        is_admin=True,
+        created_at=datetime.utcnow(),
+        last_login_at=None,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def hash_password(plain: str) -> str:

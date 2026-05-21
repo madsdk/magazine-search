@@ -28,6 +28,13 @@ def get_db(settings: Settings = Depends(get_settings)) -> Iterator[Session]:
 def get_current_user(
     request: Request, db: Session = Depends(get_db)
 ) -> User | None:
+    # AuthMiddleware pins the resolved user onto request.state (either the
+    # session-authenticated user, or the synthesized 'local' admin in
+    # desktop mode). Prefer it over re-querying so desktop mode works even
+    # without a session.
+    pinned = getattr(request.state, "current_user", None)
+    if pinned is not None:
+        return pinned
     user_id = request.session.get("user_id") if hasattr(request, "session") else None
     if not user_id:
         return None

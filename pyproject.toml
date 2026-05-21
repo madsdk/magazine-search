@@ -17,8 +17,6 @@ dependencies = [
     "typer>=0.12",
     "jinja2>=3.1",
     "pillow>=10.2",
-    "pymupdf>=1.24",
-    "rarfile>=4.1",
     "python-multipart>=0.0.9",
     "bcrypt>=4.0",
     "itsdangerous>=2.0",
@@ -29,6 +27,27 @@ ocr = [
     "paddleocr>=3.0",
     "paddlepaddle>=3.0",
 ]
+ingest = [
+    "pymupdf>=1.24",
+    "rarfile>=4.1",
+]
+desktop = [
+    "pywebview>=5.0",
+    "pyinstaller>=6.0",
+    # pywebview on Linux has no built-in backend — without Qt or GTK
+    # bindings it raises WebViewException at start(). Qt bundles cleanly
+    # with PyInstaller (GTK relies on system PyGObject + WebKit2GTK), so
+    # we ship Qt. macOS and Windows use Cocoa / WebView2 respectively,
+    # both pulled in by pywebview itself.
+    #
+    # Pin to Qt 6 (>=6.5 LTS): Qt 5.15's bundled QtWebEngine is Chromium 87
+    # (Dec 2020), which is missing many modern CSS/JS features. Qt 6.5 ships
+    # Chromium 108, Qt 6.8 ships Chromium 122 — picking up whichever wheel
+    # the resolver chooses is fine since both are leagues ahead of 87.
+    "qtpy>=2.4; sys_platform == 'linux'",
+    "PyQt6>=6.5; sys_platform == 'linux'",
+    "PyQt6-WebEngine>=6.5; sys_platform == 'linux'",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
@@ -38,6 +57,7 @@ dev = [
 
 [project.scripts]
 magsearch = "magsearch.cli:app"
+magsearch-desktop = "magsearch.desktop:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/magsearch"]

@@ -379,6 +379,7 @@ file in the working directory). All names are prefixed with `MAGSEARCH_`.
 | `MAGSEARCH_BUNDLES_DIR` | `./data/bundles` | Where the web app looks up page images and originals. |
 | `MAGSEARCH_SESSION_SECRET` | _(empty → insecure dev fallback)_ | Signs login session cookies. Set to a long random string in production. |
 | `MAGSEARCH_MAX_UPLOAD_BYTES` | `2147483648` | Cap on web bundle upload size, in bytes. Applies to both multipart body and uncompressed bundle contents. |
+| `MAGSEARCH_AUTH_ENABLED` | `true` | Keep auth on for `magsearch web`. The desktop launcher sets it to `false`, which skips the login gate, pins a synthesized `local` admin onto every request, and registers the multi-file `/import` route. |
 
 Inside the Docker image the first two are pre-set to `sqlite:////data/magsearch.db`
 and `/data/bundles`. Pass `MAGSEARCH_SESSION_SECRET` for any non-throwaway
@@ -388,9 +389,11 @@ deployment (e.g. `docker run -e MAGSEARCH_SESSION_SECRET=$(openssl rand -hex 32)
 
 ```
 src/magsearch/
-  cli.py                 # typer: ingest, bulk-ingest, import, bulk-import, web, db, admin
-  settings.py            # pydantic-settings
+  cli.py                 # typer: ingest, bulk-ingest, import, bulk-import, web, desktop, db, admin
+  settings.py            # pydantic-settings (includes auth_enabled flag)
   db.py                  # SQLAlchemy engine + session
+  desktop.py             # desktop launcher: data dir + alembic + uvicorn + pywebview
+  desktop_paths.py       # per-OS user-data dir resolution
   models.py              # Magazine, Page, User, AppConfig
   manifest.py            # bundle manifest (cross-machine contract)
   importer.py            # bundle dir → DB
@@ -405,15 +408,17 @@ src/magsearch/
   web/
     app.py / routes.py   # FastAPI app
     search.py / deps.py
-    auth.py              # password hashing, session helpers
-    middleware.py        # require-login gate
+    auth.py              # password hashing, session helpers, ensure_local_admin
+    middleware.py        # require-login gate (honors auth_enabled flag)
     config_service.py    # app_config table accessors
     routes_admin.py      # /admin/* (dashboard, issues, users, config)
     routes_auth.py       # /login, /logout
+    routes_import.py     # /import (multi-file, only mounted in desktop mode)
     templates/           # Jinja2 (incl. admin/*)
 
 alembic/                 # migrations
 tests/                   # pytest suite
+magsearch.spec           # PyInstaller spec for the desktop binary
 Dockerfile
 Dockerfile.ingest
 ```
@@ -443,3 +448,139 @@ These are deliberate gaps recorded for later:
 - **CBR test fixture is not checked in.** Creating a `.rar` archive needs the
   proprietary `rar` binary. `tests/fixtures/cbzs.py` has the exact command;
   drop a `tests/fixtures/tiny.cbr` in place and the auto-skipped test runs.
+
+## Desktop app
+
+The same package also ships as a standalone desktop application for macOS,
+Linux, and Windows. The desktop build wraps the FastAPI server in a
+pywebview window, with no OCR pipeline. It runs the same code as
+`magsearch web` but with `MAGSEARCH_AUTH_ENABLED=false`, which skips the
+login gate and registers a public multi-file `/import` route at the cost
+of admin pages being unauthenticated. Data lives in a per-OS user dir
+(`~/Library/Application Support/magsearch` on macOS,
+`%APPDATA%\magsearch` on Windows,
+`~/.local/share/magsearch` on Linux).
+
+Users import pre-computed `.magbundle` files (zips of bundle directories)
+via the in-app file picker at `/import`, which accepts one or more files
+in a single submit. Per-file failures don't abort the batch.
+
+### Run from source
+
+```bash
+pip install -e ".[desktop]"
+magsearch desktop
+```
+
+### Build a standalone binary
+
+The desktop app is packaged with PyInstaller using `magsearch.spec`. The
+build steps are the same on every OS:
+
+```bash
+pip install -e ".[desktop]"
+pyinstaller magsearch.spec --noconfirm
+```
+
+The output lands in `dist/magsearch-desktop/`. PyInstaller does **not**
+cross-compile — build each platform's binary on that platform (a Windows
+binary requires a Windows host, a macOS binary a macOS host, etc.). If
+you don't have all three machines, GitHub Actions runners
+(`windows-latest`, `macos-latest`, `ubuntu-latest`) are the easiest way
+to produce binaries for the platforms you don't own.
+
+Prerequisites on every platform:
+
+- Python 3.11 or newer installed on the build machine. PyInstaller
+  embeds whichever interpreter it runs under into the output, so the
+  Python version on the build machine becomes the Python version
+  shipped to end users. Pick one and stick with it across releases —
+  e.g. building one release with 3.11 and the next with 3.13 means
+  every user gets a different bundled runtime. On Windows we recommend
+  installing CPython from python.org (the Microsoft Store build has
+  occasionally caused PyInstaller bootloader issues).
+- A working C toolchain is **not** needed — every wheel in `[desktop]`
+  ships pre-built binaries for the major platforms.
+- End users do **not** need Python installed. The interpreter, every
+  third-party wheel, and all data files are bundled into
+  `dist/magsearch-desktop/`. Ship that whole folder; the `.exe` /
+  binary will not run if separated from the `_internal/` siblings next
+  to it.
+
+#### macOS
+
+```bash
+pip install -e ".[desktop]"
+pyinstaller magsearch.spec --noconfirm
+open dist/magsearch-desktop/magsearch-desktop
+```
+
+The spec produces a folder bundle rather than a signed `.app` — the
+binary runs directly. macOS Gatekeeper will block it on first launch
+since it is unsigned; right-click → Open (or `xattr -d
+com.apple.quarantine dist/magsearch-desktop/magsearch-desktop`) to
+bypass. Code-signing and notarization for distribution are out of scope
+here.
+
+#### Linux
+
+```bash
+pip install -e ".[desktop]"
+pyinstaller magsearch.spec --noconfirm
+./dist/magsearch-desktop/magsearch-desktop
+```
+
+PyInstaller bundles PyQt6 + PyQt6-WebEngine into the output (see "GUI
+backends" below). The resulting binary still depends on a handful of
+system libraries that the Qt wheels link against dynamically — on a
+minimal Debian/Ubuntu, install:
+
+```bash
+sudo apt-get install libxcb-cursor0 libnss3 libxkbcommon0 libegl1
+```
+
+#### Windows
+
+Run from a regular `cmd.exe` or PowerShell on a Windows 10/11 machine:
+
+```bat
+pip install -e ".[desktop]"
+pyinstaller magsearch.spec --noconfirm
+dist\magsearch-desktop\magsearch-desktop.exe
+```
+
+The webview uses Microsoft's WebView2 runtime, which is pre-installed on
+current Windows 10/11. On older builds pywebview will prompt the user
+to install it on first launch.
+
+The spec sets `console=False`, so the resulting `.exe` is a windowed
+app; launching it from a terminal will return immediately without
+attaching a console.
+
+### Frontend assets (Tailwind + fonts)
+
+The desktop bundle is fully offline: Tailwind CSS and the Fraunces/Newsreader
+variable fonts are vendored under `src/magsearch/web/static/` and committed.
+Regenerate them when templates pick up new utility classes or when the font
+spec changes:
+
+```bash
+# Rebuild only the classes the templates actually use:
+npx tailwindcss@3 -i src/magsearch/web/static/tailwind.input.css \
+                  -o src/magsearch/web/static/tailwind.css --minify
+
+# Re-download woff2 files from Google Fonts:
+python scripts/vendor_fonts.py
+```
+
+### GUI backends
+
+pywebview has no built-in window backend on Linux, so the `[desktop]`
+extra also pulls in Qt 6 (PyQt6 + qtpy + PyQt6-WebEngine) on Linux only.
+PyInstaller bundles those into the binary. macOS uses Cocoa and Windows
+uses WebView2 — both come with pywebview itself.
+
+If the GUI bindings can't load at runtime (e.g. running the Linux build
+on a system without a display server, or hitting a missing system lib),
+the launcher falls back to opening the URL in the user's default browser
+and keeps uvicorn serving in the background.

@@ -37,10 +37,15 @@
       <span>{{ mag.page_count }} pages</span>
       <span class="ornament">·</span>
       <span>{{ mag.original_format|upper }}</span>
-      <span class="ornament">·</span>
-      <a class="accent" href="/bundle/{{ mag.id }}/original.{{ mag.original_format }}">
-        download original ↓
-      </a>
+      {# Desktop (auth_enabled=false) is a single-user local app: the original
+         file is already on the user's disk, so the download link is dead
+         weight. Keep it for the multi-user web deployment. #}
+      {% if auth_enabled %}
+        <span class="ornament">·</span>
+        <a class="accent" href="/bundle/{{ mag.id }}/original.{{ mag.original_format }}">
+          download original ↓
+        </a>
+      {% endif %}
     </div>
 
     <form action="/magazine/{{ mag.id }}" method="get"

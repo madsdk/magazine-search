@@ -36,11 +36,24 @@ class AuthMiddleware:
         request = Request(scope)
         request.state.current_user = None
 
+        settings = get_settings()
+        factory = _session_factory_for(settings.database_url)
+
+        # Desktop mode: auth is off. Pin a synthesized 'local' admin onto
+        # request.state so require_user/require_admin still resolve, and skip
+        # the require_login gate entirely.
+        if not settings.auth_enabled:
+            from magsearch.web.auth import ensure_local_admin
+            with factory() as db:
+                local = ensure_local_admin(db)
+                db.expunge(local)
+            request.state.current_user = local
+            await self.app(scope, receive, send)
+            return
+
         session = scope.get("session") or {}
         user_id = session.get("user_id") if isinstance(session, dict) else None
 
-        settings = get_settings()
-        factory = _session_factory_for(settings.database_url)
         path = scope.get("path", "")
         allowed = self._is_allowed(path)
 

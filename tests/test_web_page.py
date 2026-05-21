@@ -53,3 +53,15 @@ def test_page_view_arrow_nav_carries_query(app_client):
     assert resp.status_code == 200
     # The JS-embedded next URL should carry q for highlight continuity.
     assert '"/magazine/byte-1985-12/page/2?q=synthesizer"' in resp.text
+
+
+def test_page_view_uses_padding_bottom_for_aspect(app_client):
+    # The desktop build ships QtWebEngine 5.15 / Chromium 87 which predates
+    # CSS aspect-ratio. The page frame must size itself via the padding-bottom
+    # percentage trick instead, otherwise the frame collapses to 0px and the
+    # absolutely-positioned image disappears.
+    client, _ = app_client
+    resp = client.get("/magazine/byte-1985-12/page/1")
+    assert resp.status_code == 200
+    assert "paddingBottom" in resp.text
+    assert "frame.style.aspectRatio" not in resp.text

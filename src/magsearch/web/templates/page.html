@@ -67,26 +67,33 @@
 
 {# ─────────────────────── page image ─────────────────────── #}
 <figure class="py-10">
-  <div id="page-frame" class="cover-frame inline-block w-full" data-rotation="0">
+  <div id="page-frame" class="cover-frame inline-block w-full is-initial" data-rotation="0">
     <img id="page-img" src="/bundle/{{ page.image_path }}" alt="page {{ page.page_number }}">
   </div>
 </figure>
 
 <style>
-  /* The frame's aspect-ratio is set by JS to match the *visual* aspect for
-     the current rotation. The image is absolutely positioned so its center
-     always coincides with the frame's center — without this, rotating into
-     the inverted aspect would clip half the image (the image's layout box
-     stays at its natural height and overflows the frame). */
+  /* The frame's visual height is set by JS via padding-bottom to match the
+     visual aspect for the current rotation. We use the padding-bottom
+     percentage trick (relative to the containing block's width) instead of
+     CSS aspect-ratio because the desktop build ships QtWebEngine 5.15 /
+     Chromium 87, which predates aspect-ratio support (Chromium 88+).
+     The image is absolutely positioned so its center always coincides with
+     the frame's center — without this, rotating into the inverted aspect
+     would clip half the image (the image's layout box stays at its natural
+     height and overflows the frame). */
   #page-frame {
     width: 100%;
+    height: 0;
     position: relative;
-    transition: aspect-ratio 0.25s ease;
+    transition: padding-bottom 0.25s ease;
     user-select: none;
   }
   #page-frame.is-zoomed { cursor: grab; }
   #page-frame.is-panning { cursor: grabbing; }
-  #page-frame.is-panning img { transition: none; }
+  #page-frame.is-panning img,
+  #page-frame.is-initial,
+  #page-frame.is-initial img { transition: none; }
   #page-frame img {
     position: absolute;
     top: 50%;
@@ -156,16 +163,19 @@
     }
 
     // Apply both rotation and zoom in a single transform string. We also
-    // resize the frame's aspect-ratio to match the rotated visual.
+    // resize the frame's visual height (via padding-bottom %) to match the
+    // rotated visual.
     function applyTransform() {
       if (!frame || !img || !img.naturalWidth || !img.naturalHeight) return;
       var r = ((parseInt(frame.dataset.rotation, 10) || 0) % 360 + 360) % 360;
       var nw = img.naturalWidth, nh = img.naturalHeight;
       var rotScale = (r === 90 || r === 270) ? (nw / nh) : 1;
       var z = currentZoom();
-      frame.style.aspectRatio = (r === 90 || r === 270)
-        ? (nh + " / " + nw)
-        : (nw + " / " + nh);
+      // padding-bottom % is relative to the containing block's width, so
+      // (height / width) gives the right visual aspect. For 90°/270° the
+      // visual aspect is inverted (nw/nh instead of nh/nw).
+      var ratio = (r === 90 || r === 270) ? (nw / nh) : (nh / nw);
+      frame.style.paddingBottom = (ratio * 100) + "%";
       clampPan();
       frame.classList.toggle("is-zoomed", z > 1);
       img.style.transform =
@@ -194,9 +204,18 @@
       applyTransform();
     }
 
+    function enableTransitions() {
+      // Two rAFs: first lets the just-applied transform commit without
+      // animating, second flips the flag so the next change does animate.
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          if (frame) frame.classList.remove("is-initial");
+        });
+      });
+    }
     if (img) {
-      if (img.complete && img.naturalWidth) applyTransform();
-      else img.addEventListener("load", applyTransform);
+      if (img.complete && img.naturalWidth) { applyTransform(); enableTransitions(); }
+      else img.addEventListener("load", function () { applyTransform(); enableTransitions(); });
     }
     if (rotateBtn) rotateBtn.addEventListener("click", rotate90);
     if (zoomInBtn) zoomInBtn.addEventListener("click", function () { setZoom(zoomIdx + 1); });

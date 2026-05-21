@@ -44,8 +44,7 @@ def _clear_deps_cache() -> None:
     deps._session_factory_for.cache_clear()
 
 
-@pytest.fixture
-def app_client(tmp_path, monkeypatch):
+def _build_app_client(tmp_path, monkeypatch, *, auth_enabled: bool):
     db_path = tmp_path / "test.db"
     bundles = tmp_path / "bundles"
     src = tmp_path / "src"
@@ -53,6 +52,7 @@ def app_client(tmp_path, monkeypatch):
     monkeypatch.setenv("MAGSEARCH_DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("MAGSEARCH_BUNDLES_DIR", str(bundles))
     monkeypatch.setenv("MAGSEARCH_SESSION_SECRET", "test-secret-do-not-use-in-prod")
+    monkeypatch.setenv("MAGSEARCH_AUTH_ENABLED", "true" if auth_enabled else "false")
     cfg = Config(str(Path(__file__).parent.parent / "alembic.ini"))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
     command.upgrade(cfg, "head")
@@ -68,6 +68,18 @@ def app_client(tmp_path, monkeypatch):
     _clear_deps_cache()
 
     return TestClient(create_app()), bundles
+
+
+@pytest.fixture
+def app_client(tmp_path, monkeypatch):
+    return _build_app_client(tmp_path, monkeypatch, auth_enabled=True)
+
+
+@pytest.fixture
+def desktop_app_client(tmp_path, monkeypatch):
+    """app_client variant for the desktop/auth-off code path, pre-populated
+    with the same two test magazines so view tests can render them."""
+    return _build_app_client(tmp_path, monkeypatch, auth_enabled=False)
 
 
 def create_user(

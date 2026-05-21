@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Import results · The Archive{% endblock %}
+
+{% block content %}
+<div class="mb-10">
+  <p class="caps caps-soft">Acquisitions</p>
+  <h1 class="display text-5xl">Import results</h1>
+  <div class="rule mt-4"></div>
+</div>
+
+<table class="w-full">
+  <thead>
+    <tr class="caps caps-soft text-left">
+      <th class="py-2">File</th>
+      <th class="py-2">Status</th>
+      <th class="py-2">Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for o in outcomes %}
+    <tr class="border-t border-[var(--ink)]">
+      <td class="py-2">{{ o.filename }}</td>
+      <td class="py-2">
+        {% if o.status == "imported" %}
+          <span class="accent">imported</span>
+        {% else %}
+          <span>failed</span>
+        {% endif %}
+      </td>
+      <td class="py-2">
+        {% if o.magazine_id %}
+          <a class="link-italic" href="/magazine/{{ o.magazine_id }}">{{ o.magazine_id }}</a>
+        {% elif o.error %}
+          <span class="link-italic">{{ o.error }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="mt-8"><a class="link-italic" href="/import">← Import more</a></p>
+{% endblock %}

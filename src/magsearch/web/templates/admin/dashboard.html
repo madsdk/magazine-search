@@ -7,15 +7,17 @@
     <p class="display text-6xl">{{ mag_count }}</p>
     <a href="/admin/issues" class="link-italic">Manage issues →</a>
   </div>
-  <div>
-    <p class="caps caps-soft">Users</p>
-    <p class="display text-6xl">{{ user_count }}</p>
-    <a href="/admin/users" class="link-italic">Manage users →</a>
-  </div>
-  <div>
-    <p class="caps caps-soft">Require login</p>
-    <p class="display text-6xl">{{ "Yes" if config.require_login else "No" }}</p>
-    <a href="/admin/config" class="link-italic">Edit settings →</a>
-  </div>
+  {% if auth_enabled %}
+    <div>
+      <p class="caps caps-soft">Users</p>
+      <p class="display text-6xl">{{ user_count }}</p>
+      <a href="/admin/users" class="link-italic">Manage users →</a>
+    </div>
+    <div>
+      <p class="caps caps-soft">Require login</p>
+      <p class="display text-6xl">{{ "Yes" if config.require_login else "No" }}</p>
+      <a href="/admin/config" class="link-italic">Edit settings →</a>
+    </div>
+  {% endif %}
 </div>
 {% endblock %}

@@ -13,12 +13,15 @@ from sqlalchemy import select
 from magsearch.bulk_import import bulk_import
 from magsearch.db import make_engine, make_session_factory, session_scope
 from magsearch.importer import ImportError as MagImportError, import_bundle
-from magsearch.ingest.bulk import SidecarError, bulk_ingest
-from magsearch.ingest.ocr import FakeOCREngine
-from magsearch.ingest.pipeline import IngestOptions, IngestPipeline
 from magsearch.models import User
 from magsearch.settings import get_settings
 from magsearch.web.auth import hash_password, normalize_username
+
+# magsearch.ingest.{pipeline,bulk} transitively import fitz (pymupdf) and
+# rarfile, which are only listed in the optional [ingest] extra. Deferred
+# imports inside ingest_cmd / bulk_ingest_cmd / _build_ocr_engine keep
+# `magsearch web`, `magsearch desktop`, `magsearch import`, etc. working
+# on a base install.
 
 app = typer.Typer(no_args_is_help=True, help="Magazine search.")
 db_app = typer.Typer(no_args_is_help=True, help="Database commands.")
@@ -51,6 +54,7 @@ def _build_ocr_engine(*, fake_ocr: bool, device: str, verbose: bool):
     handling — keep them in lockstep instead of forking the GPU-detection logic.
     """
     if fake_ocr:
+        from magsearch.ingest.ocr import FakeOCREngine
         return FakeOCREngine()
     from magsearch.ingest.ocr import PaddleOCREngine
     device_norm = device.lower()
@@ -99,6 +103,8 @@ def ingest_cmd(
         help="OCR device: auto (detect), cpu, or gpu. GPU requires paddlepaddle-gpu.",
     ),
 ) -> None:
+    from magsearch.ingest.pipeline import IngestOptions, IngestPipeline
+
     settings = get_settings()
     target_bundles = bundles_dir or settings.bundles_dir
     parsed_date = date.fromisoformat(publication_date) if publication_date else None
@@ -163,6 +169,8 @@ def bulk_ingest_cmd(
     device: str = typer.Option("auto", "--device"),
 ) -> None:
     """Ingest every PDF/CBR/CBZ in a directory, with resumable per-file state."""
+    from magsearch.ingest.bulk import SidecarError, bulk_ingest
+
     settings = get_settings()
     target_bundles = bundles_dir or settings.bundles_dir
     engine = _build_ocr_engine(fake_ocr=fake_ocr, device=device, verbose=verbose)
@@ -298,6 +306,14 @@ def db_upgrade(revision: str = typer.Argument("head")) -> None:
 @db_app.command("downgrade")
 def db_downgrade(revision: str = typer.Argument("-1")) -> None:
     command.downgrade(_alembic_cfg(), revision)
+
+
+@app.command("desktop")
+def desktop_cmd() -> None:
+    """Launch magsearch as a desktop app (pywebview)."""
+    # Deferred import: pywebview is only required for the desktop subcommand.
+    from magsearch.desktop import main as desktop_main
+    desktop_main()
 
 
 def _open_session():

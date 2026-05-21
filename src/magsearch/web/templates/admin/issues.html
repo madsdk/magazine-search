@@ -8,7 +8,9 @@
     <button class="mark-go">go ↵</button>
   </form>
   <span class="flex-1"></span>
-  <a href="/admin/issues/upload" class="mark-go">upload bundle ↑</a>
+  {% if auth_enabled %}
+    <a href="/admin/issues/upload" class="mark-go">upload bundle ↑</a>
+  {% endif %}
 </div>
 
 <table class="w-full text-left">
