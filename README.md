@@ -474,13 +474,88 @@ magsearch desktop
 
 ### Build a standalone binary
 
+The desktop app is packaged with PyInstaller using `magsearch.spec`. The
+build steps are the same on every OS:
+
+```bash
+pip install -e ".[desktop]"
+pyinstaller magsearch.spec --noconfirm
+```
+
+The output lands in `dist/magsearch-desktop/`. PyInstaller does **not**
+cross-compile — build each platform's binary on that platform (a Windows
+binary requires a Windows host, a macOS binary a macOS host, etc.). If
+you don't have all three machines, GitHub Actions runners
+(`windows-latest`, `macos-latest`, `ubuntu-latest`) are the easiest way
+to produce binaries for the platforms you don't own.
+
+Prerequisites on every platform:
+
+- Python 3.11 or newer installed on the build machine. PyInstaller
+  embeds whichever interpreter it runs under into the output, so the
+  Python version on the build machine becomes the Python version
+  shipped to end users. Pick one and stick with it across releases —
+  e.g. building one release with 3.11 and the next with 3.13 means
+  every user gets a different bundled runtime. On Windows we recommend
+  installing CPython from python.org (the Microsoft Store build has
+  occasionally caused PyInstaller bootloader issues).
+- A working C toolchain is **not** needed — every wheel in `[desktop]`
+  ships pre-built binaries for the major platforms.
+- End users do **not** need Python installed. The interpreter, every
+  third-party wheel, and all data files are bundled into
+  `dist/magsearch-desktop/`. Ship that whole folder; the `.exe` /
+  binary will not run if separated from the `_internal/` siblings next
+  to it.
+
+#### macOS
+
+```bash
+pip install -e ".[desktop]"
+pyinstaller magsearch.spec --noconfirm
+open dist/magsearch-desktop/magsearch-desktop
+```
+
+The spec produces a folder bundle rather than a signed `.app` — the
+binary runs directly. macOS Gatekeeper will block it on first launch
+since it is unsigned; right-click → Open (or `xattr -d
+com.apple.quarantine dist/magsearch-desktop/magsearch-desktop`) to
+bypass. Code-signing and notarization for distribution are out of scope
+here.
+
+#### Linux
+
 ```bash
 pip install -e ".[desktop]"
 pyinstaller magsearch.spec --noconfirm
 ./dist/magsearch-desktop/magsearch-desktop
 ```
 
-Build per OS on the OS itself — PyInstaller does not cross-compile.
+PyInstaller bundles PyQt6 + PyQt6-WebEngine into the output (see "GUI
+backends" below). The resulting binary still depends on a handful of
+system libraries that the Qt wheels link against dynamically — on a
+minimal Debian/Ubuntu, install:
+
+```bash
+sudo apt-get install libxcb-cursor0 libnss3 libxkbcommon0 libegl1
+```
+
+#### Windows
+
+Run from a regular `cmd.exe` or PowerShell on a Windows 10/11 machine:
+
+```bat
+pip install -e ".[desktop]"
+pyinstaller magsearch.spec --noconfirm
+dist\magsearch-desktop\magsearch-desktop.exe
+```
+
+The webview uses Microsoft's WebView2 runtime, which is pre-installed on
+current Windows 10/11. On older builds pywebview will prompt the user
+to install it on first launch.
+
+The spec sets `console=False`, so the resulting `.exe` is a windowed
+app; launching it from a terminal will return immediately without
+attaching a console.
 
 ### Frontend assets (Tailwind + fonts)
 
