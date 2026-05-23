@@ -34,6 +34,14 @@
     </label>
   </div>
 
+  <div>
+    <label class="caps caps-soft inline-flex items-center gap-3">
+      <input type="checkbox" name="is_researcher" value="1"
+             {% if editing and user.is_researcher %}checked{% endif %}>
+      Researcher
+    </label>
+  </div>
+
   <div class="pt-2 flex items-baseline gap-6">
     <button type="submit" class="btn-editorial">{{ "Save changes" if editing else "Create user" }}</button>
     <a href="/admin/users" class="link-italic">cancel</a>

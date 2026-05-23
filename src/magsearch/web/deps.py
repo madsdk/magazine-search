@@ -60,6 +60,12 @@ def require_admin(user: User = Depends(require_user)) -> User:
     return user
 
 
+def require_researcher(user: User = Depends(require_user)) -> User:
+    if not user.is_researcher:
+        raise HTTPException(status_code=403, detail="researcher access required")
+    return user
+
+
 def _ensure_csrf_token(request: Request) -> str:
     token = request.session.get("csrf_token")
     if not token:

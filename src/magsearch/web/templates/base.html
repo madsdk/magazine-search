@@ -280,7 +280,7 @@
       <nav class="caps flex gap-5">
         <a href="/magazines">Browse</a>
         <a href="/search">Search</a>
-        {% if auth_enabled and current_user() %}
+        {% if auth_enabled and current_user() and current_user().is_researcher %}
           <a href="/research">My research</a>
         {% endif %}
         {% if current_user() and current_user().is_admin %}

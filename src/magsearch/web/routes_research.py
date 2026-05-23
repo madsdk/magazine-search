@@ -18,9 +18,9 @@ from magsearch.models import (
     ResearchTopicPage,
     User,
 )
-from magsearch.web.deps import get_db, require_csrf, require_user
+from magsearch.web.deps import get_db, require_csrf, require_researcher
 
-router = APIRouter(prefix="/research", dependencies=[Depends(require_user)])
+router = APIRouter(prefix="/research", dependencies=[Depends(require_researcher)])
 _TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
@@ -92,7 +92,7 @@ def _user_topics_with_counts(db: Session, user_id: int) -> list[dict]:
 def topics_index(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_user),
+    user: User = Depends(require_researcher),
 ) -> HTMLResponse:
     items = _user_topics_with_counts(db, user.id)
     return _TEMPLATES.TemplateResponse(
@@ -108,7 +108,7 @@ def topic_create(
     description: str = Form(""),
     _csrf: None = Depends(require_csrf),
     db: Session = Depends(get_db),
-    user: User = Depends(require_user),
+    user: User = Depends(require_researcher),
 ):
     name_clean = name.strip()
     if not name_clean:
@@ -160,7 +160,7 @@ def topic_detail(
     request: Request,
     topic_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(require_user),
+    user: User = Depends(require_researcher),
 ) -> HTMLResponse:
     topic = _owned_topic(db, topic_id, user)
     grouped = _sorted_topic_pages(db, topic.id)
@@ -180,7 +180,7 @@ def topic_edit(
     description: str = Form(""),
     _csrf: None = Depends(require_csrf),
     db: Session = Depends(get_db),
-    user: User = Depends(require_user),
+    user: User = Depends(require_researcher),
 ):
     topic = _owned_topic(db, topic_id, user)
     name_clean = name.strip()
@@ -198,7 +198,7 @@ def topic_delete(
     topic_id: int,
     _csrf: None = Depends(require_csrf),
     db: Session = Depends(get_db),
-    user: User = Depends(require_user),
+    user: User = Depends(require_researcher),
 ):
     topic = _owned_topic(db, topic_id, user)
     db.delete(topic)
@@ -214,7 +214,7 @@ def topic_page_note(
     note: str = Form(""),
     _csrf: None = Depends(require_csrf),
     db: Session = Depends(get_db),
-    user: User = Depends(require_user),
+    user: User = Depends(require_researcher),
 ):
     topic = _owned_topic(db, topic_id, user)
     row = db.scalar(
@@ -238,7 +238,7 @@ def topic_page_remove(
     page_id: int,
     _csrf: None = Depends(require_csrf),
     db: Session = Depends(get_db),
-    user: User = Depends(require_user),
+    user: User = Depends(require_researcher),
 ):
     topic = _owned_topic(db, topic_id, user)
     row = db.scalar(
@@ -260,7 +260,7 @@ async def save_page(
     request: Request,
     _csrf: None = Depends(require_csrf),
     db: Session = Depends(get_db),
-    user: User = Depends(require_user),
+    user: User = Depends(require_researcher),
 ):
     """Reconcile a page's topic memberships in a single submit.
 

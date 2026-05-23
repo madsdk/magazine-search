@@ -15,6 +15,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(unique=True, index=True)
     password_hash: Mapped[str]
     is_admin: Mapped[bool] = mapped_column(default=False)
+    is_researcher: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime]
     last_login_at: Mapped[datetime | None]
 
