@@ -25,6 +25,14 @@
     color: var(--ink);
   }
 
+  /* Tailwind v3 emits [hidden]:where(:not([hidden=until-found])) which has
+     0,1,0 specificity — the same as utility classes like .flex / .grid /
+     .block. Those come later in source order, so they silently override the
+     `hidden` attribute (an element with class="grid" and hidden stays
+     visible). Duplicating the attribute selector gives us 0,2,0 specificity,
+     which beats any single utility without resorting to !important. */
+  [hidden][hidden] { display: none; }
+
   /* Strip default browser button chrome so utility classes (.mark-go,
      .link-italic, .caps, etc.) render the same on <a> and <button>.
      Buttons that need a filled background (.btn-editorial) set their own. */

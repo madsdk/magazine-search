@@ -66,10 +66,6 @@
   label[data-research-chip] { user-select: none; }
   /* Make sure the modal can scroll on narrow viewports. */
   #save-to-research-modal { overflow-y: auto; padding-top: 2rem; padding-bottom: 2rem; }
-  /* Tailwind's `.flex` has the same specificity as `[hidden]:where(...)`
-     and comes later in the cascade, so it wins — leaving the modal
-     visible despite the `hidden` attribute. Bump specificity here. */
-  #save-to-research-modal[hidden] { display: none; }
 </style>
 
 <script>
