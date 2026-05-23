@@ -101,8 +101,7 @@
                           data-edit-note="{{ tp.id }}">edit note</button>
                   <form method="post"
                         action="/research/{{ topic.id }}/pages/{{ page.id }}/remove"
-                        class="inline"
-                        onsubmit="return confirm('Remove page {{ page.page_number }} from this topic?');">
+                        class="inline" data-remove-page>
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="link-italic accent">remove</button>
                   </form>
@@ -135,6 +134,30 @@
       </ul>
     </section>
   {% endfor %}
+  {# Single confirmation modal reused by every row's "remove" form.
+     Submission is intercepted; clicking "remove" inside the modal submits
+     the pending form. #}
+  <div id="remove-page-modal" role="dialog" aria-modal="true"
+       aria-labelledby="remove-page-title" hidden
+       class="fixed inset-0 z-50 flex items-center justify-center px-6"
+       style="background: rgba(26, 20, 14, 0.35);">
+    <div class="w-full max-w-md"
+         style="background: var(--paper); border: 1px solid var(--ink); box-shadow: 6px 7px 0 var(--paper-deep); padding: 1.6rem 1.8rem;">
+      <div class="display text-2xl mb-1" id="remove-page-title">
+        <span class="ornament">¶</span>
+        Remove page?
+      </div>
+      <div class="italic text-[var(--ink-soft)] mb-6">
+        Remove this page from the research topic
+        <span class="not-italic">“{{ topic.name }}”</span>?
+      </div>
+
+      <div class="flex items-center justify-end gap-4">
+        <button type="button" class="link-italic" data-remove-cancel>cancel</button>
+        <button type="button" class="btn-editorial" id="remove-page-confirm">remove</button>
+      </div>
+    </div>
+  </div>
 {% else %}
   <div class="py-12 text-center">
     <div class="display-italic text-2xl text-[var(--ink-soft)] mb-3">
@@ -177,6 +200,54 @@
         if (input) input.focus();
       });
     });
+
+    // Confirm "remove" via the styled modal. The modal is shared; we
+    // remember which form opened it so the confirm button submits the right
+    // one. Cancel / Esc / backdrop-click dismiss.
+    var removeModal = document.getElementById("remove-page-modal");
+    var removeConfirm = document.getElementById("remove-page-confirm");
+    if (removeModal && removeConfirm) {
+      var pendingForm = null;
+
+      function openRemove(form) {
+        pendingForm = form;
+        removeModal.hidden = false;
+        removeConfirm.focus();
+      }
+      function closeRemove() {
+        pendingForm = null;
+        removeModal.hidden = true;
+      }
+
+      document.querySelectorAll('form[data-remove-page]').forEach(function (form) {
+        form.addEventListener("submit", function (e) {
+          e.preventDefault();
+          openRemove(form);
+        });
+      });
+
+      removeConfirm.addEventListener("click", function () {
+        if (!pendingForm) return;
+        var form = pendingForm;
+        pendingForm = null;
+        form.submit();
+      });
+
+      removeModal.querySelectorAll("[data-remove-cancel]").forEach(function (el) {
+        el.addEventListener("click", closeRemove);
+      });
+
+      removeModal.addEventListener("click", function (e) {
+        if (e.target === removeModal) closeRemove();
+      });
+
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && !removeModal.hidden) {
+          e.preventDefault();
+          closeRemove();
+        }
+      });
+    }
   })();
 </script>
 
