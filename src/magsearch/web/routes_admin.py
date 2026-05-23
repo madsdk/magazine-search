@@ -250,6 +250,7 @@ def user_new_submit(
     username: str = Form(...),
     password: str = Form(...),
     is_admin: str = Form(""),
+    is_researcher: str = Form(""),
     _csrf: None = Depends(require_csrf),
     db: Session = Depends(get_db),
 ):
@@ -277,6 +278,7 @@ def user_new_submit(
         username=normalized,
         password_hash=hash_password(password),
         is_admin=bool(is_admin),
+        is_researcher=bool(is_researcher),
         created_at=datetime.utcnow(),
         last_login_at=None,
     ))
@@ -307,6 +309,7 @@ def user_edit_submit(
     username: str = Form(...),
     password: str = Form(""),
     is_admin: str = Form(""),
+    is_researcher: str = Form(""),
     _csrf: None = Depends(require_csrf),
     db: Session = Depends(get_db),
     current: User = Depends(require_admin),
@@ -334,6 +337,7 @@ def user_edit_submit(
             status_code=400,
         )
     user.is_admin = new_is_admin
+    user.is_researcher = bool(is_researcher)
 
     if password.strip():
         user.password_hash = hash_password(password)

@@ -19,7 +19,11 @@
     {% for u in users %}
       <tr class="border-t border-[var(--ink)] border-opacity-20">
         <td class="py-3">{{ u.username }}</td>
-        <td class="py-3">{% if u.is_admin %}<span class="tag tag-active">admin</span>{% else %}user{% endif %}</td>
+        <td class="py-3">
+          {% if u.is_admin %}<span class="tag tag-active">admin</span>{% endif %}
+          {% if u.is_researcher %}<span class="tag tag-active">researcher</span>{% endif %}
+          {% if not u.is_admin and not u.is_researcher %}user{% endif %}
+        </td>
         <td class="py-3">{{ u.last_login_at.strftime("%Y-%m-%d %H:%M") if u.last_login_at else "—" }}</td>
         <td class="py-3 text-right">
           <a href="/admin/users/{{ u.id }}/edit" class="link-italic">edit</a>

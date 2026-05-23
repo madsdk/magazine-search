@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+{% block title %}{{ topic.name }} · research{% endblock %}
+{% block content %}
+
+<style>
+  /* Page thumbnails on the research detail page render at their natural
+     aspect ratio. The cover-frame's 3:4 mold + object-fit: cover crops
+     pages whose aspect doesn't match (most scans are ~0.72), so we use a
+     dedicated lightweight frame here. */
+  .research-thumb {
+    display: block;
+    max-width: 150px;
+    border: 1px solid var(--ink);
+    box-shadow: 4px 5px 0 var(--paper-deep);
+    line-height: 0;
+  }
+  .research-thumb img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+</style>
+
+
+<div class="caps caps-soft mb-3">
+  <a href="/research" class="hover:text-[var(--accent)]">← my research</a>
+</div>
+
+<section class="mb-6 flex items-start justify-between gap-6">
+  <div class="flex-1">
+    <h1 class="display text-5xl mb-2">{{ topic.name }}</h1>
+    {% if topic.description %}
+      <div class="italic text-[var(--ink-soft)] mb-3">{{ topic.description }}</div>
+    {% endif %}
+    <div class="caps caps-soft">
+      {{ total_pages }} page{{ '' if total_pages == 1 else 's' }}
+      <span class="ornament">·</span>
+      updated {{ topic.updated_at|humanize_dt }}
+    </div>
+  </div>
+  <div class="flex items-baseline gap-4 mt-2">
+    <button type="button" id="edit-topic-toggle" class="link-italic">edit</button>
+    <form method="post" action="/research/{{ topic.id }}/delete"
+          class="inline" id="delete-topic-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="link-italic accent">delete</button>
+    </form>
+  </div>
+</section>
+
+<form method="post" action="/research/{{ topic.id }}/edit" id="edit-topic-form"
+      hidden class="mb-8 grid grid-cols-12 gap-4 items-end">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="col-span-12 md:col-span-5">
+    <div class="caps caps-soft mb-1">Name</div>
+    <input type="text" name="name" maxlength="120" required
+           value="{{ topic.name }}" class="field-small w-full">
+  </div>
+  <div class="col-span-12 md:col-span-5">
+    <div class="caps caps-soft mb-1">Description</div>
+    <input type="text" name="description" maxlength="500"
+           value="{{ topic.description or '' }}"
+           class="field-small w-full">
+  </div>
+  <div class="col-span-12 md:col-span-2 text-right">
+    <button type="submit" class="btn-editorial">save</button>
+  </div>
+</form>
+
+<div class="rule mb-8"></div>
+
+{% if grouped %}
+  {% for mag, rows in grouped %}
+    <section class="mb-10">
+      <div class="caps mb-4">
+        {{ mag.title }}
+        {% if mag.publication_date %}
+          <span class="ornament">·</span>
+          {{ mag.publication_date.strftime('%B %Y') }}
+        {% elif mag.issue %}
+          <span class="ornament">·</span>
+          № {{ mag.issue }}
+        {% endif %}
+      </div>
+
+      <ul>
+        {% for tp, page in rows %}
+          <li class="grid grid-cols-12 gap-x-6 items-start py-4 border-t border-[var(--ink)] border-opacity-20">
+            <div class="col-span-3 sm:col-span-2">
+              <a href="/magazine/{{ mag.id }}/page/{{ page.page_number }}"
+                 class="block research-thumb">
+                <img src="/bundle/{{ page.thumb_path }}" alt="page {{ page.page_number }}">
+              </a>
+            </div>
+            <div class="col-span-9 sm:col-span-10">
+              <div class="flex items-baseline justify-between gap-4 mb-2">
+                <a href="/magazine/{{ mag.id }}/page/{{ page.page_number }}"
+                   class="display text-2xl">
+                  page {{ page.page_number }}
+                </a>
+                <div class="flex items-baseline gap-3">
+                  <button type="button"
+                          class="link-italic"
+                          data-edit-note="{{ tp.id }}">edit note</button>
+                  <form method="post"
+                        action="/research/{{ topic.id }}/pages/{{ page.id }}/remove"
+                        class="inline" data-remove-page>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="link-italic accent">remove</button>
+                  </form>
+                </div>
+              </div>
+
+              <div id="note-view-{{ tp.id }}"
+                   class="italic text-[var(--ink-soft)]">
+                {% if tp.note %}
+                  {{ tp.note }}
+                {% else %}
+                  <span class="text-[var(--ink-faint)]">add a note…</span>
+                {% endif %}
+              </div>
+
+              <form method="post"
+                    action="/research/{{ topic.id }}/pages/{{ page.id }}/note"
+                    id="note-edit-{{ tp.id }}" hidden
+                    class="flex items-baseline gap-3 mt-1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="text" name="note" maxlength="500"
+                       value="{{ tp.note or '' }}"
+                       class="field-small flex-1"
+                       placeholder="note…">
+                <button type="submit" class="mark-go">save ↵</button>
+              </form>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endfor %}
+  {# Single confirmation modal reused by every row's "remove" form.
+     Submission is intercepted; clicking "remove" inside the modal submits
+     the pending form. #}
+  <div id="remove-page-modal" role="dialog" aria-modal="true"
+       aria-labelledby="remove-page-title" hidden
+       class="fixed inset-0 z-50 flex items-center justify-center px-6"
+       style="background: rgba(26, 20, 14, 0.35);">
+    <div class="w-full max-w-md"
+         style="background: var(--paper); border: 1px solid var(--ink); box-shadow: 6px 7px 0 var(--paper-deep); padding: 1.6rem 1.8rem;">
+      <div class="display text-2xl mb-1" id="remove-page-title">
+        <span class="ornament">¶</span>
+        Remove page?
+      </div>
+      <div class="italic text-[var(--ink-soft)] mb-6">
+        Remove this page from the research topic
+        <span class="not-italic">“{{ topic.name }}”</span>?
+      </div>
+
+      <div class="flex items-center justify-end gap-4">
+        <button type="button" class="link-italic" data-remove-cancel>cancel</button>
+        <button type="button" class="btn-editorial" id="remove-page-confirm">remove</button>
+      </div>
+    </div>
+  </div>
+{% else %}
+  <div class="py-12 text-center">
+    <div class="display-italic text-2xl text-[var(--ink-soft)] mb-3">
+      No pages saved to this topic yet.
+    </div>
+    <div class="italic text-[var(--ink-soft)] mb-5">
+      Open a magazine, find a page worth keeping, and click
+      <span class="caps">save to research →</span>
+      in the page toolbar.
+    </div>
+    <a href="/magazines" class="mark-go">browse magazines →</a>
+  </div>
+{% endif %}
+
+{# Confirmation modal for deleting the entire topic. Always present so it
+   works whether or not the topic has pages saved. #}
+<div id="delete-topic-modal" role="dialog" aria-modal="true"
+     aria-labelledby="delete-topic-title" hidden
+     class="fixed inset-0 z-50 flex items-center justify-center px-6"
+     style="background: rgba(26, 20, 14, 0.35);">
+  <div class="w-full max-w-md"
+       style="background: var(--paper); border: 1px solid var(--ink); box-shadow: 6px 7px 0 var(--paper-deep); padding: 1.6rem 1.8rem;">
+    <div class="display text-2xl mb-1" id="delete-topic-title">
+      <span class="ornament">¶</span>
+      Delete topic?
+    </div>
+    <div class="italic text-[var(--ink-soft)] mb-6">
+      Delete the topic
+      <span class="not-italic">“{{ topic.name }}”</span>{%
+        if total_pages == 0 %}?{%
+        elif total_pages == 1 %} and the page saved in it?{%
+        else %} and all {{ total_pages }} pages saved in it?{%
+      endif %}
+    </div>
+
+    <div class="flex items-center justify-end gap-4">
+      <button type="button" class="link-italic" data-delete-topic-cancel>cancel</button>
+      <button type="button" class="btn-editorial" id="delete-topic-confirm">delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var editToggle = document.getElementById("edit-topic-toggle");
+    var editForm = document.getElementById("edit-topic-form");
+    if (editToggle && editForm) {
+      editToggle.addEventListener("click", function () {
+        editForm.hidden = !editForm.hidden;
+        if (!editForm.hidden) {
+          var first = editForm.querySelector('input[name="name"]');
+          if (first) first.focus();
+        }
+      });
+    }
+
+    // Inline edit-note swap: clicking "edit note" swaps the static text
+    // for an input, focuses it, and hides the cancel via blur/Esc.
+    document.querySelectorAll('[data-edit-note]').forEach(function (btn) {
+      var id = btn.getAttribute("data-edit-note");
+      var view = document.getElementById("note-view-" + id);
+      var form = document.getElementById("note-edit-" + id);
+      if (!view || !form) return;
+      btn.addEventListener("click", function () {
+        view.hidden = true;
+        form.hidden = false;
+        var input = form.querySelector('input[name="note"]');
+        if (input) input.focus();
+      });
+    });
+
+    // Bind a styled confirmation modal to a form submission. The form's
+    // submit is intercepted; clicking the confirm button submits it. Cancel
+    // / Esc / backdrop-click dismiss without submitting.
+    function bindConfirmModal(modal, confirmBtn, cancelSelector, getForms) {
+      if (!modal || !confirmBtn) return;
+      var pendingForm = null;
+
+      function open(form) {
+        pendingForm = form;
+        modal.hidden = false;
+        confirmBtn.focus();
+      }
+      function close() {
+        pendingForm = null;
+        modal.hidden = true;
+      }
+
+      getForms().forEach(function (form) {
+        form.addEventListener("submit", function (e) {
+          e.preventDefault();
+          open(form);
+        });
+      });
+
+      confirmBtn.addEventListener("click", function () {
+        if (!pendingForm) return;
+        var form = pendingForm;
+        pendingForm = null;
+        form.submit();
+      });
+
+      modal.querySelectorAll(cancelSelector).forEach(function (el) {
+        el.addEventListener("click", close);
+      });
+
+      modal.addEventListener("click", function (e) {
+        if (e.target === modal) close();
+      });
+
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && !modal.hidden) {
+          e.preventDefault();
+          close();
+        }
+      });
+    }
+
+    bindConfirmModal(
+      document.getElementById("remove-page-modal"),
+      document.getElementById("remove-page-confirm"),
+      "[data-remove-cancel]",
+      function () { return document.querySelectorAll("form[data-remove-page]"); }
+    );
+
+    bindConfirmModal(
+      document.getElementById("delete-topic-modal"),
+      document.getElementById("delete-topic-confirm"),
+      "[data-delete-topic-cancel]",
+      function () {
+        var f = document.getElementById("delete-topic-form");
+        return f ? [f] : [];
+      }
+    );
+  })();
+</script>
+
+{% endblock %}

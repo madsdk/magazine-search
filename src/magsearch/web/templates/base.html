@@ -25,6 +25,14 @@
     color: var(--ink);
   }
 
+  /* Tailwind v3 emits [hidden]:where(:not([hidden=until-found])) which has
+     0,1,0 specificity — the same as utility classes like .flex / .grid /
+     .block. Those come later in source order, so they silently override the
+     `hidden` attribute (an element with class="grid" and hidden stays
+     visible). Duplicating the attribute selector gives us 0,2,0 specificity,
+     which beats any single utility without resorting to !important. */
+  [hidden][hidden] { display: none; }
+
   /* Strip default browser button chrome so utility classes (.mark-go,
      .link-italic, .caps, etc.) render the same on <a> and <button>.
      Buttons that need a filled background (.btn-editorial) set their own. */
@@ -205,6 +213,13 @@
     border-color: var(--accent);
     color: var(--paper);
   }
+  .btn-editorial:disabled,
+  .btn-editorial:disabled:hover {
+    background: var(--ink-faint);
+    border-color: var(--ink-faint);
+    color: var(--paper);
+    cursor: not-allowed;
+  }
 
   /* Quiet link styled as a typographic mark. */
   .link-italic {
@@ -265,6 +280,9 @@
       <nav class="caps flex gap-5">
         <a href="/magazines">Browse</a>
         <a href="/search">Search</a>
+        {% if auth_enabled and current_user() and current_user().is_researcher %}
+          <a href="/research">My research</a>
+        {% endif %}
         {% if current_user() and current_user().is_admin %}
           <a href="{{ '/admin/issues' if not auth_enabled else '/admin' }}">Admin</a>
         {% endif %}

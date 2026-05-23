@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}My research{% endblock %}
+{% block content %}
+
+<section class="mb-8 flex items-baseline justify-between gap-6">
+  <div>
+    <div class="caps caps-soft mb-1">
+      <span class="ornament">¶</span>
+      {{ current_user().username }}
+    </div>
+    <h1 class="display text-5xl">My research</h1>
+  </div>
+  <button type="button" id="new-topic-toggle" class="mark-go">+ new topic</button>
+</section>
+
+<form method="post" action="/research" id="new-topic-form" hidden
+      class="mb-8 grid grid-cols-12 gap-4 items-end">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="col-span-12 md:col-span-5">
+    <div class="caps caps-soft mb-1">Name</div>
+    <input type="text" name="name" maxlength="120" required
+           placeholder="e.g. early home computers"
+           class="field-small w-full">
+  </div>
+  <div class="col-span-12 md:col-span-5">
+    <div class="caps caps-soft mb-1">Description <span class="italic normal-case tracking-normal text-[var(--ink-faint)]">(optional)</span></div>
+    <input type="text" name="description" maxlength="500"
+           placeholder="one sentence on what this topic is about"
+           class="field-small w-full">
+  </div>
+  <div class="col-span-12 md:col-span-2 text-right">
+    <button type="submit" class="btn-editorial">create</button>
+  </div>
+</form>
+
+<div class="rule mb-6"></div>
+
+{% if items %}
+<table class="w-full text-left">
+  <thead>
+    <tr class="caps caps-soft">
+      <th class="py-2 w-1/2">Topic</th>
+      <th class="py-2 text-right">Pages</th>
+      <th class="py-2">Updated</th>
+      <th class="py-2"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+      {% set t = item.topic %}
+      <tr class="border-t border-[var(--ink)] border-opacity-20 align-top">
+        <td class="py-4">
+          <a href="/research/{{ t.id }}"
+             class="display text-2xl">{{ t.name }}</a>
+          {% if t.description %}
+            <div class="italic text-[var(--ink-soft)] mt-1">{{ t.description }}</div>
+          {% endif %}
+        </td>
+        <td class="py-4 text-right">{{ item.page_count }}</td>
+        <td class="py-4 italic text-[var(--ink-soft)]">{{ t.updated_at|humanize_dt }}</td>
+        <td class="py-4 text-right">
+          <a href="/research/{{ t.id }}" class="link-italic">open</a>
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="py-16 text-center">
+  <div class="display-italic text-3xl text-[var(--ink-soft)] mb-3">
+    Nothing here yet.
+  </div>
+  <div class="italic text-[var(--ink-soft)] mb-6">
+    Start a topic above, then click <span class="caps">save to research →</span>
+    on any magazine page to gather what you find.
+  </div>
+  <a href="/magazines" class="mark-go">browse magazines →</a>
+</div>
+{% endif %}
+
+<script>
+  (function () {
+    var toggle = document.getElementById("new-topic-toggle");
+    var form = document.getElementById("new-topic-form");
+    if (!toggle || !form) return;
+    toggle.addEventListener("click", function () {
+      form.hidden = !form.hidden;
+      if (!form.hidden) {
+        var first = form.querySelector('input[name="name"]');
+        if (first) first.focus();
+      }
+    });
+  })();
+</script>
+
+{% endblock %}

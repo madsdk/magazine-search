@@ -83,7 +83,11 @@ def desktop_app_client(tmp_path, monkeypatch):
 
 
 def create_user(
-    db_factory, username: str, password: str = "secret-pw", is_admin: bool = False
+    db_factory,
+    username: str,
+    password: str = "secret-pw",
+    is_admin: bool = False,
+    is_researcher: bool = False,
 ) -> int:
     """Create a user directly in the DB. Returns user id."""
     with session_scope(db_factory) as s:
@@ -91,6 +95,7 @@ def create_user(
             username=username.lower(),
             password_hash=hash_password(password),
             is_admin=is_admin,
+            is_researcher=is_researcher,
             created_at=datetime.utcnow(),
             last_login_at=None,
         )
@@ -145,13 +150,18 @@ def admin_client(app_client):
 
 @pytest.fixture
 def user_client(app_client):
-    """A TestClient signed in as a non-admin user."""
+    """A TestClient signed in as a non-admin researcher.
+
+    Every test built on this fixture exercises the /research routes,
+    which are gated behind require_researcher — so the role is part of
+    the fixture contract, not something each test has to opt into.
+    """
     client, bundles = app_client
     from magsearch.settings import get_settings
     from magsearch.db import make_engine, make_session_factory
 
     settings = get_settings()
     factory = make_session_factory(make_engine(settings.database_url))
-    create_user(factory, "bob", "bob-pw", is_admin=False)
+    create_user(factory, "bob", "bob-pw", is_admin=False, is_researcher=True)
     login(client, "bob", "bob-pw")
     return client, bundles
