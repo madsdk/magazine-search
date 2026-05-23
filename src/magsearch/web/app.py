@@ -15,7 +15,13 @@ from magsearch.web.routes_auth import router as auth_router
 
 def _wire_jinja_globals(auth_enabled: bool) -> None:
     """Expose csrf_token(), current_user, and auth_enabled as Jinja globals."""
-    from magsearch.web import routes, routes_admin, routes_auth, routes_import
+    from magsearch.web import (
+        routes,
+        routes_admin,
+        routes_auth,
+        routes_import,
+        routes_research,
+    )
 
     @pass_context
     def _csrf(ctx) -> str:
@@ -26,7 +32,13 @@ def _wire_jinja_globals(auth_enabled: bool) -> None:
         request: Request = ctx["request"]
         return getattr(request.state, "current_user", None)
 
-    for module in (routes, routes_admin, routes_auth, routes_import):
+    for module in (
+        routes,
+        routes_admin,
+        routes_auth,
+        routes_import,
+        routes_research,
+    ):
         env = module._TEMPLATES.env  # type: ignore[attr-defined]
         env.globals["csrf_token"] = _csrf
         env.globals["current_user"] = _current_user
@@ -63,6 +75,10 @@ def create_app() -> FastAPI:
     if not settings.auth_enabled:
         from magsearch.web.routes_import import router as import_router
         app.include_router(import_router)
+    # Research mode is a web-only feature — desktop has no multi-user concept.
+    if settings.auth_enabled:
+        from magsearch.web.routes_research import router as research_router
+        app.include_router(research_router)
     app.include_router(content_router)
 
     # Vendored Tailwind CSS + Google Fonts so the desktop bundle runs offline.

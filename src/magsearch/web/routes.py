@@ -280,6 +280,7 @@ def page_view(
     page_number: int,
     q: str = Query(default=""),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> HTMLResponse:
     mag = db.get(Magazine, magazine_id)
     if mag is None:
@@ -292,6 +293,23 @@ def page_view(
     )
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
+
+    # Research-mode data: only loaded for logged-in users in web mode.
+    # Desktop mode (auth_enabled=False) skips this entirely so the save
+    # mark never renders and we do no extra queries.
+    research_topics: list = []
+    research_topic_ids: set[int] = set()
+    current_user = getattr(request.state, "current_user", None)
+    if settings.auth_enabled and current_user is not None:
+        from magsearch.web.routes_research import (
+            existing_topic_ids_for_page,
+            user_topics,
+        )
+        research_topics = user_topics(db, current_user.id)
+        research_topic_ids = existing_topic_ids_for_page(
+            db, page.id, current_user.id
+        )
+
     return _TEMPLATES.TemplateResponse(
         request,
         "page.html",
@@ -301,6 +319,8 @@ def page_view(
             "q": q,
             "has_prev": page_number > 1,
             "has_next": page_number < mag.page_count,
+            "research_topics": research_topics,
+            "research_topic_ids": research_topic_ids,
         },
     )
 

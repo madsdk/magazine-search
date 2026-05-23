@@ -66,3 +66,44 @@ class Page(Base):
     text: Mapped[str]
 
     magazine: Mapped[Magazine] = relationship(back_populates="pages")
+
+
+class ResearchTopic(Base):
+    __tablename__ = "research_topics"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str]
+    description: Mapped[str | None]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+    pages: Mapped[list["ResearchTopicPage"]] = relationship(
+        back_populates="topic",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class ResearchTopicPage(Base):
+    __tablename__ = "research_topic_pages"
+    __table_args__ = (UniqueConstraint("topic_id", "page_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    topic_id: Mapped[int] = mapped_column(
+        ForeignKey("research_topics.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    page_id: Mapped[int] = mapped_column(
+        ForeignKey("pages.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    note: Mapped[str | None]
+    saved_at: Mapped[datetime]
+
+    topic: Mapped[ResearchTopic] = relationship(back_populates="pages")
+    page: Mapped[Page] = relationship()

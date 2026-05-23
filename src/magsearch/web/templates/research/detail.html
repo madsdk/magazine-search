@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}{{ topic.name }} · research{% endblock %}
+{% block content %}
+
+<div class="caps caps-soft mb-3">
+  <a href="/research" class="hover:text-[var(--accent)]">← my research</a>
+</div>
+
+<section class="mb-6 flex items-start justify-between gap-6">
+  <div class="flex-1">
+    <h1 class="display text-5xl mb-2">{{ topic.name }}</h1>
+    {% if topic.description %}
+      <div class="italic text-[var(--ink-soft)] mb-3">{{ topic.description }}</div>
+    {% endif %}
+    <div class="caps caps-soft">
+      {{ total_pages }} page{{ '' if total_pages == 1 else 's' }}
+      <span class="ornament">·</span>
+      updated {{ topic.updated_at|humanize_dt }}
+    </div>
+  </div>
+  <div class="flex items-baseline gap-4 mt-2">
+    <button type="button" id="edit-topic-toggle" class="link-italic">edit</button>
+    <form method="post" action="/research/{{ topic.id }}/delete" class="inline"
+          onsubmit="return confirm('Delete the topic &quot;{{ topic.name }}&quot; and all saved pages in it?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="link-italic accent">delete</button>
+    </form>
+  </div>
+</section>
+
+<form method="post" action="/research/{{ topic.id }}/edit" id="edit-topic-form"
+      hidden class="mb-8 grid grid-cols-12 gap-4 items-end">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="col-span-12 md:col-span-5">
+    <div class="caps caps-soft mb-1">Name</div>
+    <input type="text" name="name" maxlength="120" required
+           value="{{ topic.name }}" class="field-small w-full">
+  </div>
+  <div class="col-span-12 md:col-span-5">
+    <div class="caps caps-soft mb-1">Description</div>
+    <input type="text" name="description" maxlength="500"
+           value="{{ topic.description or '' }}"
+           class="field-small w-full">
+  </div>
+  <div class="col-span-12 md:col-span-2 text-right">
+    <button type="submit" class="btn-editorial">save</button>
+  </div>
+</form>
+
+<div class="rule mb-8"></div>
+
+{% if grouped %}
+  {% for mag, rows in grouped %}
+    <section class="mb-10">
+      <div class="caps mb-4">
+        {{ mag.title }}
+        {% if mag.publication_date %}
+          <span class="ornament">·</span>
+          {{ mag.publication_date.strftime('%B %Y') }}
+        {% elif mag.issue %}
+          <span class="ornament">·</span>
+          № {{ mag.issue }}
+        {% endif %}
+      </div>
+
+      <ul>
+        {% for tp, page in rows %}
+          <li class="grid grid-cols-12 gap-x-6 items-start py-4 border-t border-[var(--ink)] border-opacity-20">
+            <div class="col-span-3 sm:col-span-2">
+              <a href="/magazine/{{ mag.id }}/page/{{ page.page_number }}"
+                 class="block cover-frame aspect-[3/4]"
+                 style="max-width: 100px;">
+                <img src="/bundle/{{ page.thumb_path }}" alt="page {{ page.page_number }}">
+              </a>
+            </div>
+            <div class="col-span-9 sm:col-span-10">
+              <div class="flex items-baseline justify-between gap-4 mb-2">
+                <a href="/magazine/{{ mag.id }}/page/{{ page.page_number }}"
+                   class="display text-2xl">
+                  page {{ page.page_number }}
+                </a>
+                <div class="flex items-baseline gap-3">
+                  <button type="button"
+                          class="link-italic"
+                          data-edit-note="{{ tp.id }}">edit note</button>
+                  <form method="post"
+                        action="/research/{{ topic.id }}/pages/{{ page.id }}/remove"
+                        class="inline"
+                        onsubmit="return confirm('Remove page {{ page.page_number }} from this topic?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="link-italic accent">remove</button>
+                  </form>
+                </div>
+              </div>
+
+              <div id="note-view-{{ tp.id }}"
+                   class="italic text-[var(--ink-soft)]">
+                {% if tp.note %}
+                  {{ tp.note }}
+                {% else %}
+                  <span class="text-[var(--ink-faint)]">(no note)</span>
+                {% endif %}
+              </div>
+
+              <form method="post"
+                    action="/research/{{ topic.id }}/pages/{{ page.id }}/note"
+                    id="note-edit-{{ tp.id }}" hidden
+                    class="flex items-baseline gap-3 mt-1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="text" name="note" maxlength="500"
+                       value="{{ tp.note or '' }}"
+                       class="field-small flex-1"
+                       placeholder="note…">
+                <button type="submit" class="mark-go">save ↵</button>
+              </form>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endfor %}
+{% else %}
+  <div class="py-12 text-center">
+    <div class="display-italic text-2xl text-[var(--ink-soft)] mb-3">
+      No pages saved to this topic yet.
+    </div>
+    <div class="italic text-[var(--ink-soft)] mb-5">
+      Open a magazine, find a page worth keeping, and click
+      <span class="caps">save to research →</span>
+      in the page toolbar.
+    </div>
+    <a href="/magazines" class="mark-go">browse magazines →</a>
+  </div>
+{% endif %}
+
+<script>
+  (function () {
+    var editToggle = document.getElementById("edit-topic-toggle");
+    var editForm = document.getElementById("edit-topic-form");
+    if (editToggle && editForm) {
+      editToggle.addEventListener("click", function () {
+        editForm.hidden = !editForm.hidden;
+        if (!editForm.hidden) {
+          var first = editForm.querySelector('input[name="name"]');
+          if (first) first.focus();
+        }
+      });
+    }
+
+    // Inline edit-note swap: clicking "edit note" swaps the static text
+    // for an input, focuses it, and hides the cancel via blur/Esc.
+    document.querySelectorAll('[data-edit-note]').forEach(function (btn) {
+      var id = btn.getAttribute("data-edit-note");
+      var view = document.getElementById("note-view-" + id);
+      var form = document.getElementById("note-edit-" + id);
+      if (!view || !form) return;
+      btn.addEventListener("click", function () {
+        view.hidden = true;
+        form.hidden = false;
+        var input = form.querySelector('input[name="note"]');
+        if (input) input.focus();
+      });
+    });
+  })();
+</script>
+
+{% endblock %}

@@ -1,0 +1,131 @@
+{# Save-to-research modal: included by page.html when a user is logged in.
+   Hidden by default; toggled by the "save to research →" button.
+   Submits a single form to /research/save-page which reconciles topic
+   memberships (add new, remove unchecked, refresh note).            #}
+<div id="save-to-research-modal" role="dialog" aria-modal="true"
+     aria-labelledby="save-to-research-title" hidden
+     class="fixed inset-0 z-50 flex items-center justify-center px-6"
+     style="background: rgba(26, 20, 14, 0.35);">
+  <form method="post" action="/research/save-page"
+        class="w-full max-w-xl"
+        style="background: var(--paper); border: 1px solid var(--ink); box-shadow: 6px 7px 0 var(--paper-deep); padding: 1.6rem 1.8rem;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="page_id" value="{{ page.id }}">
+    <input type="hidden" name="return_to"
+           value="/magazine/{{ mag.id }}/page/{{ page.page_number }}{% if q %}?q={{ q|urlencode }}{% endif %}">
+
+    <div class="display text-2xl mb-1">
+      <span class="ornament">¶</span>
+      Save page {{ page.page_number }} to research
+    </div>
+    <div class="italic text-[var(--ink-soft)] text-sm mb-4" id="save-to-research-title">
+      {{ mag.title }}{% if mag.publication_date %} · {{ mag.publication_date.strftime('%B %Y') }}{% endif %}
+    </div>
+
+    <div class="rule-hair mb-4"></div>
+
+    <div class="caps caps-soft mb-3">Topics</div>
+    <div class="flex flex-wrap gap-2 mb-5">
+      {% for t in research_topics %}
+        <label class="tag cursor-pointer{% if t.id in research_topic_ids %} tag-active{% endif %}"
+               data-research-chip>
+          <input type="checkbox" name="topic_ids" value="{{ t.id }}"
+                 class="sr-only"
+                 {% if t.id in research_topic_ids %}checked{% endif %}>
+          {{ t.name }}{% if t.id in research_topic_ids %} ✓{% endif %}
+        </label>
+      {% else %}
+        <span class="italic text-[var(--ink-soft)] text-sm">
+          (no topics yet — create one below)
+        </span>
+      {% endfor %}
+    </div>
+
+    <div class="caps caps-soft mb-2">+ new topic</div>
+    <input type="text" name="new_topic_name" maxlength="120"
+           placeholder="name of a new topic…"
+           class="field-small w-full mb-5">
+
+    <div class="caps caps-soft mb-2">Note <span class="italic normal-case tracking-normal text-[var(--ink-faint)]">(optional)</span></div>
+    <textarea name="note" rows="3"
+              placeholder="why does this page matter?"
+              class="field-small w-full mb-6"
+              style="resize: vertical;"></textarea>
+
+    <div class="flex items-center justify-end gap-4">
+      <button type="button" class="link-italic" data-research-cancel>cancel</button>
+      <button type="submit" class="btn-editorial">save →</button>
+    </div>
+  </form>
+</div>
+
+<style>
+  /* Chip with hidden checkbox: clicking the label toggles the input, and
+     a small inline script swaps the .tag-active class so it visually
+     reflects state. */
+  label[data-research-chip] { user-select: none; }
+  /* Make sure the modal can scroll on narrow viewports. */
+  #save-to-research-modal { overflow-y: auto; padding-top: 2rem; padding-bottom: 2rem; }
+  /* Tailwind's `.flex` has the same specificity as `[hidden]:where(...)`
+     and comes later in the cascade, so it wins — leaving the modal
+     visible despite the `hidden` attribute. Bump specificity here. */
+  #save-to-research-modal[hidden] { display: none; }
+</style>
+
+<script>
+  (function () {
+    var modal = document.getElementById("save-to-research-modal");
+    var openBtn = document.getElementById("save-to-research-btn");
+    if (!modal || !openBtn) return;
+    var form = modal.querySelector("form");
+
+    function open() {
+      modal.hidden = false;
+      var firstFocusable = modal.querySelector("input, textarea, button");
+      if (firstFocusable) firstFocusable.focus();
+    }
+    function close() {
+      modal.hidden = true;
+      openBtn.focus();
+    }
+
+    openBtn.addEventListener("click", open);
+
+    modal.querySelectorAll("[data-research-cancel]").forEach(function (el) {
+      el.addEventListener("click", close);
+    });
+
+    // Click outside the form to dismiss.
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) close();
+    });
+
+    // Esc to dismiss.
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !modal.hidden) {
+        e.preventDefault();
+        close();
+      }
+    });
+
+    // Toggle .tag-active when the hidden checkbox flips so the visual
+    // state matches what will be submitted. Also append/remove the ✓ glyph.
+    modal.querySelectorAll("label[data-research-chip]").forEach(function (label) {
+      var cb = label.querySelector('input[type="checkbox"]');
+      if (!cb) return;
+      cb.addEventListener("change", function () {
+        if (cb.checked) {
+          label.classList.add("tag-active");
+          if (label.textContent.indexOf("✓") === -1) {
+            label.appendChild(document.createTextNode(" ✓"));
+          }
+        } else {
+          label.classList.remove("tag-active");
+          label.innerHTML = label.innerHTML.replace(/\s*✓\s*$/, "");
+          // Re-insert the checkbox we just nuked.
+          label.insertBefore(cb, label.firstChild);
+        }
+      });
+    });
+  })();
+</script>
