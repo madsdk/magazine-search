@@ -37,8 +37,8 @@
   </div>
   <div class="flex items-baseline gap-4 mt-2">
     <button type="button" id="edit-topic-toggle" class="link-italic">edit</button>
-    <form method="post" action="/research/{{ topic.id }}/delete" class="inline"
-          onsubmit="return confirm('Delete the topic &quot;{{ topic.name }}&quot; and all saved pages in it?');">
+    <form method="post" action="/research/{{ topic.id }}/delete"
+          class="inline" id="delete-topic-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="link-italic accent">delete</button>
     </form>
@@ -172,6 +172,34 @@
   </div>
 {% endif %}
 
+{# Confirmation modal for deleting the entire topic. Always present so it
+   works whether or not the topic has pages saved. #}
+<div id="delete-topic-modal" role="dialog" aria-modal="true"
+     aria-labelledby="delete-topic-title" hidden
+     class="fixed inset-0 z-50 flex items-center justify-center px-6"
+     style="background: rgba(26, 20, 14, 0.35);">
+  <div class="w-full max-w-md"
+       style="background: var(--paper); border: 1px solid var(--ink); box-shadow: 6px 7px 0 var(--paper-deep); padding: 1.6rem 1.8rem;">
+    <div class="display text-2xl mb-1" id="delete-topic-title">
+      <span class="ornament">¶</span>
+      Delete topic?
+    </div>
+    <div class="italic text-[var(--ink-soft)] mb-6">
+      Delete the topic
+      <span class="not-italic">“{{ topic.name }}”</span>{%
+        if total_pages == 0 %}?{%
+        elif total_pages == 1 %} and the page saved in it?{%
+        else %} and all {{ total_pages }} pages saved in it?{%
+      endif %}
+    </div>
+
+    <div class="flex items-center justify-end gap-4">
+      <button type="button" class="link-italic" data-delete-topic-cancel>cancel</button>
+      <button type="button" class="btn-editorial" id="delete-topic-confirm">delete</button>
+    </div>
+  </div>
+</div>
+
 <script>
   (function () {
     var editToggle = document.getElementById("edit-topic-toggle");
@@ -201,53 +229,69 @@
       });
     });
 
-    // Confirm "remove" via the styled modal. The modal is shared; we
-    // remember which form opened it so the confirm button submits the right
-    // one. Cancel / Esc / backdrop-click dismiss.
-    var removeModal = document.getElementById("remove-page-modal");
-    var removeConfirm = document.getElementById("remove-page-confirm");
-    if (removeModal && removeConfirm) {
+    // Bind a styled confirmation modal to a form submission. The form's
+    // submit is intercepted; clicking the confirm button submits it. Cancel
+    // / Esc / backdrop-click dismiss without submitting.
+    function bindConfirmModal(modal, confirmBtn, cancelSelector, getForms) {
+      if (!modal || !confirmBtn) return;
       var pendingForm = null;
 
-      function openRemove(form) {
+      function open(form) {
         pendingForm = form;
-        removeModal.hidden = false;
-        removeConfirm.focus();
+        modal.hidden = false;
+        confirmBtn.focus();
       }
-      function closeRemove() {
+      function close() {
         pendingForm = null;
-        removeModal.hidden = true;
+        modal.hidden = true;
       }
 
-      document.querySelectorAll('form[data-remove-page]').forEach(function (form) {
+      getForms().forEach(function (form) {
         form.addEventListener("submit", function (e) {
           e.preventDefault();
-          openRemove(form);
+          open(form);
         });
       });
 
-      removeConfirm.addEventListener("click", function () {
+      confirmBtn.addEventListener("click", function () {
         if (!pendingForm) return;
         var form = pendingForm;
         pendingForm = null;
         form.submit();
       });
 
-      removeModal.querySelectorAll("[data-remove-cancel]").forEach(function (el) {
-        el.addEventListener("click", closeRemove);
+      modal.querySelectorAll(cancelSelector).forEach(function (el) {
+        el.addEventListener("click", close);
       });
 
-      removeModal.addEventListener("click", function (e) {
-        if (e.target === removeModal) closeRemove();
+      modal.addEventListener("click", function (e) {
+        if (e.target === modal) close();
       });
 
       document.addEventListener("keydown", function (e) {
-        if (e.key === "Escape" && !removeModal.hidden) {
+        if (e.key === "Escape" && !modal.hidden) {
           e.preventDefault();
-          closeRemove();
+          close();
         }
       });
     }
+
+    bindConfirmModal(
+      document.getElementById("remove-page-modal"),
+      document.getElementById("remove-page-confirm"),
+      "[data-remove-cancel]",
+      function () { return document.querySelectorAll("form[data-remove-page]"); }
+    );
+
+    bindConfirmModal(
+      document.getElementById("delete-topic-modal"),
+      document.getElementById("delete-topic-confirm"),
+      "[data-delete-topic-cancel]",
+      function () {
+        var f = document.getElementById("delete-topic-form");
+        return f ? [f] : [];
+      }
+    );
   })();
 </script>
 
