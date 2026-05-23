@@ -79,36 +79,55 @@ def test_anonymous_redirected_from_save_page(app_client):
 
 # ---------- Nav + save-trigger visibility ----------
 
-def test_my_research_link_only_for_logged_in(app_client):
+def test_my_research_link_only_for_researchers(app_client):
     client, _ = app_client
     # Anonymous: link absent on a public page.
     resp = client.get("/magazines")
     assert resp.status_code == 200
     assert "/research" not in resp.text
 
-    # Logged-in: link present.
-    create_user(_factory(), "carol", "carol-pw")
+    # Logged-in researcher: link present.
+    create_user(_factory(), "carol", "carol-pw", is_researcher=True)
     login(client, "carol", "carol-pw")
     resp = client.get("/magazines")
     assert resp.status_code == 200
     assert "/research" in resp.text
 
 
-def test_save_to_research_trigger_only_for_logged_in(app_client):
+def test_save_to_research_trigger_only_for_researchers(app_client):
+    # The trigger is an icon-only button; match by element id (the
+    # modal id also appears in an unrelated keyboard-shortcut JS
+    # handler regardless of role, so we match the element attribute
+    # form, not the bare id string).
     client, _ = app_client
-    # Anonymous: trigger absent on page viewer.
     resp = client.get("/magazine/byte-1985-12/page/1")
     assert resp.status_code == 200
-    assert "save to research" not in resp.text
-    assert "save-to-research-modal" not in resp.text
+    assert 'id="save-to-research-btn"' not in resp.text
+    assert 'id="save-to-research-modal"' not in resp.text
 
-    # Logged-in: both trigger and modal render.
-    create_user(_factory(), "carol", "carol-pw")
+    create_user(_factory(), "carol", "carol-pw", is_researcher=True)
     login(client, "carol", "carol-pw")
     resp = client.get("/magazine/byte-1985-12/page/1")
     assert resp.status_code == 200
-    assert "save to research" in resp.text
-    assert "save-to-research-modal" in resp.text
+    assert 'id="save-to-research-btn"' in resp.text
+    assert 'id="save-to-research-modal"' in resp.text
+
+
+def test_page_view_skips_research_data_for_non_researcher(app_client):
+    """A logged-in non-researcher user must not have their (or anyone's)
+    topic data loaded into the page-view template context — the UI hides
+    research controls for them, so the queries are pure waste and the
+    topic names should not leak into the rendered HTML."""
+    client, _ = app_client
+    # Seed a user with topics, but leave is_researcher=False.
+    user_id = create_user(_factory(), "carol", "carol-pw")
+    _create_topic(user_id, "carols-secret-topic-name")
+    login(client, "carol", "carol-pw")
+
+    resp = client.get("/magazine/byte-1985-12/page/1")
+    assert resp.status_code == 200
+    assert "carols-secret-topic-name" not in resp.text
+    assert 'id="save-to-research-modal"' not in resp.text
 
 
 def test_research_routes_404_in_desktop_mode(desktop_app_client):
@@ -169,7 +188,9 @@ def test_topic_visible_only_to_owner(user_client):
     assert "bob&#39;s topic" in resp.text or "bob's topic" in resp.text
 
     # carol logs in (different client) and gets 404 on bob's topic.
-    create_user(_factory(), "carol", "carol-pw")
+    # She has the researcher role too — the assertion under test is the
+    # per-topic ownership check, not the role gate.
+    create_user(_factory(), "carol", "carol-pw", is_researcher=True)
     from fastapi.testclient import TestClient
     from magsearch.web.app import create_app
     other = TestClient(create_app())
@@ -330,6 +351,26 @@ def test_save_page_with_new_topic_name_creates_topic(user_client):
         assert len(rows) == 1
         assert rows[0].page_id == page_id
         assert rows[0].note == "found something"
+
+
+def test_save_page_rejects_scheme_relative_return_to(user_client):
+    """A return_to like //evil.example must not be honored — browsers
+    treat it as cross-origin even though it starts with '/'."""
+    client, _ = user_client
+    page_id = _page_id("byte-1985-12", 1)
+    token = get_csrf(client)
+    for bad in ("//evil.example", "//evil.example/path", "https://evil.example/"):
+        resp = client.post(
+            "/research/save-page",
+            data={
+                "csrf_token": token,
+                "page_id": str(page_id),
+                "return_to": bad,
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/research", bad
 
 
 def test_save_page_ignores_topic_ids_belonging_to_other_user(user_client):

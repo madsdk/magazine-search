@@ -378,8 +378,14 @@ async def save_page(
     db.commit()
 
     return_to = form.get("return_to") or "/research"
-    # Guard against open-redirect: only honor in-app paths.
-    if not isinstance(return_to, str) or not return_to.startswith("/"):
+    # Guard against open-redirect: only honor same-origin relative paths.
+    # Reject scheme-relative URLs like "//evil.example" that browsers treat
+    # as cross-origin even though they start with "/".
+    if (
+        not isinstance(return_to, str)
+        or not return_to.startswith("/")
+        or return_to.startswith("//")
+    ):
         return_to = "/research"
     return RedirectResponse(url=return_to, status_code=303)
 

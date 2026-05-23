@@ -77,7 +77,11 @@
 
     function open() {
       modal.hidden = false;
-      var firstFocusable = modal.querySelector("input, textarea, button");
+      // Skip the leading hidden form fields (csrf_token, page_id, return_to)
+      // and the sr-only chip checkboxes — they're focusable but invisible,
+      // which leaves keyboard users with no visible focus indicator.
+      var firstFocusable = modal.querySelector('input[name="new_topic_name"]')
+        || modal.querySelector('input:not([type=hidden]):not(.sr-only), textarea, button:not([disabled])');
       if (firstFocusable) firstFocusable.focus();
     }
     function close() {
