@@ -226,6 +226,35 @@ The bulk flow (`bulk-ingest` + `rsync` + `bulk-import`) is still the right
 choice for ingesting many issues at once — the web upload is meant for a
 single bundle at a time.
 
+## Research mode
+
+Researchers (accounts with the **researcher** flag — see
+[Authentication & admin](#authentication--admin)) get a private workspace
+at `/research` for bookmarking specific pages across the archive. The
+unit of organisation is the **topic**: a named bucket of pages, with an
+optional free-form description and a per-page note.
+
+The page viewer grows a small bookmark icon next to the zoom controls
+for researchers. Clicking it opens a modal that lets you pick which
+existing topics this page belongs to, create a brand-new topic on the
+spot, and attach a one-line note explaining why the page matters. The
+keyboard shortcut is `S`.
+
+Topics and saved pages are scoped strictly to the owning account. Two
+researchers on the same instance can't see — or accidentally trample —
+each other's topics, even if they pick the same name. There's no
+sharing UI: it's a personal notebook, not a collaboration tool.
+
+A topic's detail page (`/research/<id>`) groups its saved pages by
+magazine, ordered by publication date, and lets you edit notes or drop
+pages individually. Deleting the topic cascades to its saved-page rows
+but leaves the magazines themselves alone.
+
+Research mode is a web-app feature: it's only available when
+`MAGSEARCH_AUTH_ENABLED=true` (i.e. the server build, not the desktop
+build). The desktop launcher skips the routes entirely and the
+bookmark button never renders.
+
 ## Bulk ingestion
 
 For ingesting a whole collection (hundreds or thousands of files), drive the
@@ -368,6 +397,15 @@ Once an admin exists, sign in at `/login` and the rest of user management
 (create/edit/delete users, promote to admin, change the public/private toggle)
 lives in `/admin`.
 
+### The researcher role
+
+Beyond the admin/user split, accounts can also carry a **researcher** flag.
+It's purely additive — researchers can build up private collections of
+saved pages (see [Research mode](#research-mode) below) — and orthogonal
+to admin: a user can be one, both, or neither. Toggle it from the user
+edit form under `/admin/users`. There's no CLI for it; granting the role
+is an admin-UI action.
+
 ## Configuration
 
 Both CLI and web app read settings from environment variables (or a `.env`
@@ -394,7 +432,7 @@ src/magsearch/
   db.py                  # SQLAlchemy engine + session
   desktop.py             # desktop launcher: data dir + alembic + uvicorn + pywebview
   desktop_paths.py       # per-OS user-data dir resolution
-  models.py              # Magazine, Page, User, AppConfig
+  models.py              # Magazine, Page, User (incl. is_researcher), AppConfig, ResearchTopic, ResearchTopicPage
   manifest.py            # bundle manifest (cross-machine contract)
   importer.py            # bundle dir → DB
   bulk_import.py         # iterate bundles dir → DB, with resumable state log
@@ -414,7 +452,8 @@ src/magsearch/
     routes_admin.py      # /admin/* (dashboard, issues, users, config)
     routes_auth.py       # /login, /logout
     routes_import.py     # /import (multi-file, only mounted in desktop mode)
-    templates/           # Jinja2 (incl. admin/*)
+    routes_research.py   # /research/* (private per-user topics, only mounted when auth_enabled)
+    templates/           # Jinja2 (incl. admin/*, research/*)
 
 alembic/                 # migrations
 tests/                   # pytest suite
