@@ -54,7 +54,7 @@
 
     <div class="flex items-center justify-end gap-4">
       <button type="button" class="link-italic" data-research-cancel>cancel</button>
-      <button type="submit" class="btn-editorial">save →</button>
+      <button type="submit" class="btn-editorial" id="save-to-research-submit">save →</button>
     </div>
   </form>
 </div>
@@ -121,7 +121,22 @@
           // Re-insert the checkbox we just nuked.
           label.insertBefore(cb, label.firstChild);
         }
+        refreshSaveState();
       });
     });
+
+    // Save is only meaningful when the user has picked a destination — at
+    // least one existing topic checked, or a new-topic name typed.
+    var submitBtn = document.getElementById("save-to-research-submit");
+    var newTopicInput = form.querySelector('input[name="new_topic_name"]');
+    function refreshSaveState() {
+      var anyChecked = !!form.querySelector('input[name="topic_ids"]:checked');
+      var hasNewName = newTopicInput && newTopicInput.value.trim().length > 0;
+      submitBtn.disabled = !(anyChecked || hasNewName);
+    }
+    if (newTopicInput) {
+      newTopicInput.addEventListener("input", refreshSaveState);
+    }
+    refreshSaveState();
   })();
 </script>
