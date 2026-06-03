@@ -107,7 +107,7 @@ _GROUPED_ORDER_CLAUSES = {
     "rank":    "best_rank, MIN(magazines.publication_date) ASC, magazines.title",
     "newest":  "MAX(magazines.publication_date) DESC, best_rank",
     "oldest":  "MIN(magazines.publication_date) ASC, best_rank",
-    "matches": "COUNT(*) DESC, best_rank",
+    "matches": "COUNT(*) DESC, best_rank, magazines.id",
 }
 
 

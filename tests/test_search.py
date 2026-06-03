@@ -366,3 +366,53 @@ def test_search_magazines_sort_matches_tiebreak_by_rank(tied_match_count_db):
     assert all(g.match_count == 1 for g in groups)
     assert groups[0].magazine_id == "crisp-1985-01"
     assert groups[1].magazine_id == "noisy-1986-01"
+
+
+@pytest.fixture
+def identical_content_db(tmp_path, monkeypatch):
+    """Two magazines with byte-identical OCR text — they produce the same
+    match_count AND the same best_rank, so the only way to get a stable
+    order is the magazines.id tie-breaker."""
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("MAGSEARCH_DATABASE_URL", f"sqlite:///{db_path}")
+    cfg = Config(str(Path(__file__).parent.parent / "alembic.ini"))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    command.upgrade(cfg, "head")
+    engine = make_engine(f"sqlite:///{db_path}")
+    factory = make_session_factory(engine)
+    bundles = tmp_path / "bundles"
+
+    def _ocr_responses():
+        return [
+            [OCRRegion(text="synthesizer review", bbox=(0,0,50,10), confidence=1.0)],
+        ]
+
+    # Insert "zebra" first so insertion order is the opposite of id-ascending
+    # order — that way a test asserting id-ascending order can't pass simply
+    # because SQLite happened to return rows in insertion order.
+    zebra = IngestPipeline(
+        bundles, FakeOCREngine(responses=_ocr_responses()),
+        IngestOptions(title="Zebra", publication_date=date(1985, 1, 1)),
+    ).run(make_pdf(tmp_path / "zebra.pdf", num_pages=1))
+
+    alpha = IngestPipeline(
+        bundles, FakeOCREngine(responses=_ocr_responses()),
+        IngestOptions(title="Alpha", publication_date=date(1985, 1, 1)),
+    ).run(make_pdf(tmp_path / "alpha.pdf", num_pages=1))
+
+    with session_scope(factory) as s:
+        import_bundle(zebra.bundle_dir, s)
+        import_bundle(alpha.bundle_dir, s)
+    return factory
+
+
+def test_search_magazines_sort_matches_is_stable_on_total_tie(identical_content_db):
+    # Both issues have identical match_count and best_rank. The magazines.id
+    # tie-break must give a deterministic order — and "alpha-..." sorts before
+    # "zebra-..." lexically, despite Zebra being inserted first.
+    factory = identical_content_db
+    with session_scope(factory) as s:
+        groups = search_magazines(
+            s, "synthesizer", offset=0, limit=10, sort="matches",
+        )
+    assert [g.magazine_id for g in groups] == ["alpha-1985-01", "zebra-1985-01"]
