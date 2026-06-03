@@ -84,6 +84,7 @@ class MagazineMatch:
 # allowed sort key and look it up by validated enum value.
 
 FLAT_SORT_OPTIONS = ("rank", "newest", "oldest")
+GROUPED_SORT_OPTIONS = ("rank", "newest", "oldest", "matches")
 PER_ISSUE_SORT_OPTIONS = ("rank", "page")
 DEFAULT_FLAT_SORT = "rank"
 DEFAULT_PER_ISSUE_SORT = "rank"
@@ -103,9 +104,10 @@ _PER_ISSUE_ORDER_CLAUSES = {
 }
 
 _GROUPED_ORDER_CLAUSES = {
-    "rank":   "best_rank, MIN(magazines.publication_date) ASC, magazines.title",
-    "newest": "MAX(magazines.publication_date) DESC, best_rank",
-    "oldest": "MIN(magazines.publication_date) ASC, best_rank",
+    "rank":    "best_rank, MIN(magazines.publication_date) ASC, magazines.title",
+    "newest":  "MAX(magazines.publication_date) DESC, best_rank",
+    "oldest":  "MIN(magazines.publication_date) ASC, best_rank",
+    "matches": "COUNT(*) DESC, best_rank",
 }
 
 

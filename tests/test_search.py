@@ -251,6 +251,26 @@ def test_search_magazines_sort_newest(two_magazines_db):
     assert groups[1].magazine_id == "compute-1984-06"
 
 
+def test_search_magazines_sort_matches_orders_by_count(two_magazines_db):
+    # Byte has 2 matching pages, Compute has 1. With sort="matches", Byte
+    # must come first regardless of publication date.
+    factory = two_magazines_db
+    with session_scope(factory) as s:
+        groups = search_magazines(
+            s, "synthesizer", offset=0, limit=10, sort="matches",
+        )
+    assert [g.magazine_id for g in groups] == ["byte-1985-12", "compute-1984-06"]
+    assert [g.match_count for g in groups] == [2, 1]
+
+    # Sanity check that the existing oldest sort still puts Compute first —
+    # this confirms the new sort is ordering by count, not by date.
+    with session_scope(factory) as s:
+        oldest = search_magazines(
+            s, "synthesizer", offset=0, limit=10, sort="oldest",
+        )
+    assert oldest[0].magazine_id == "compute-1984-06"
+
+
 def test_search_match_all_requires_every_term(populated_db):
     # Byte fixture: p1="vintage synthesizer review", p3="synthesizer keyboards in 1985".
     # Only p3 contains both "synthesizer" and "keyboards"; p1 only has "synthesizer".
