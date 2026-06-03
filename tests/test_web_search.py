@@ -338,3 +338,60 @@ def test_magazines_title_form_checkbox_round_trip(app_client):
     mp = re.search(r'<input\s+type="checkbox"[^>]*name="match_phrase"[^>]*>', resp.text)
     assert mp is not None
     assert "checked" not in mp.group(0)
+
+
+def test_search_route_grouped_offers_matches_sort(app_client):
+    # The grouped view's sort row should include a sort=matches link.
+    client, _ = app_client
+    resp = client.get(
+        "/search",
+        params={"q": "synthesizer modem apple", "view": "grouped",
+                "match_all": 0},
+    )
+    assert resp.status_code == 200
+    assert "sort=matches" in resp.text
+
+
+def test_search_route_flat_omits_matches_sort(app_client):
+    # The flat view's sort row must NOT include a sort=matches link.
+    client, _ = app_client
+    resp = client.get(
+        "/search",
+        params={"q": "synthesizer modem apple", "view": "flat",
+                "match_all": 0},
+    )
+    assert resp.status_code == 200
+    assert "sort=matches" not in resp.text
+
+
+def test_search_route_grouped_accepts_matches_sort(app_client):
+    # sort=matches in the grouped view must be honoured (no fallback to
+    # "rank"). Byte (2 matching pages) must appear before Compute (1).
+    client, _ = app_client
+    resp = client.get(
+        "/search",
+        params={"q": "synthesizer modem apple", "view": "grouped",
+                "match_all": 0, "sort": "matches"},
+    )
+    assert resp.status_code == 200
+    byte_pos = resp.text.find("byte-1985-12")
+    compute_pos = resp.text.find("compute-1984-06")
+    assert byte_pos != -1 and compute_pos != -1, resp.text
+    assert byte_pos < compute_pos
+
+
+def test_search_route_flat_rejects_matches_sort(app_client):
+    # sort=matches is not valid in the flat view; _validate_sort must fall
+    # back to the default. The response should still render 200 and the
+    # rendered sort control must not show "matches" as the active choice.
+    client, _ = app_client
+    resp = client.get(
+        "/search",
+        params={"q": "synthesizer modem apple", "view": "flat",
+                "match_all": 0, "sort": "matches"},
+    )
+    assert resp.status_code == 200
+    # The template renders the active sort as a bare <span>{{ s }}</span>
+    # and inactive options as anchor tags. A literal "<span>matches</span>"
+    # would mean the bogus sort survived validation.
+    assert "<span>matches</span>" not in resp.text

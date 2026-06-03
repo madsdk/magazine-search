@@ -15,6 +15,7 @@ from magsearch.web.search import (
     DEFAULT_FLAT_SORT,
     DEFAULT_PER_ISSUE_SORT,
     FLAT_SORT_OPTIONS,
+    GROUPED_SORT_OPTIONS,
     PER_ISSUE_SORT_OPTIONS,
     search,
     search_in_magazine,
@@ -89,7 +90,8 @@ def search_route(
 ) -> HTMLResponse:
     if view not in ("grouped", "flat"):
         view = "grouped"
-    sort = _validate_sort(sort, FLAT_SORT_OPTIONS, DEFAULT_FLAT_SORT)
+    sort_options = GROUPED_SORT_OPTIONS if view == "grouped" else FLAT_SORT_OPTIONS
+    sort = _validate_sort(sort, sort_options, DEFAULT_FLAT_SORT)
     per_page = _validate_per_page(per_page)
     match_phrase_b = bool(match_phrase)
     # Phrase mode implies AND: you can't find every word in order unless
@@ -125,7 +127,7 @@ def search_route(
             "sort": sort,
             "per_page": per_page,
             "per_page_options": PER_PAGE_OPTIONS,
-            "sort_options": FLAT_SORT_OPTIONS,
+            "sort_options": sort_options,
             "at_result_cap": at_result_cap,
             "result_cap": result_cap,
             "match_all": match_all_b,
