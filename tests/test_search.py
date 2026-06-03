@@ -313,3 +313,56 @@ def test_search_match_phrase_overrides_match_all_off(populated_db):
         hits = search(s, "keyboards synthesizer", offset=0, limit=10,
                       match_all=False, match_phrase=True)
     assert hits == []
+
+
+@pytest.fixture
+def tied_match_count_db(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("MAGSEARCH_DATABASE_URL", f"sqlite:///{db_path}")
+    cfg = Config(str(Path(__file__).parent.parent / "alembic.ini"))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    command.upgrade(cfg, "head")
+    engine = make_engine(f"sqlite:///{db_path}")
+    factory = make_session_factory(engine)
+    bundles = tmp_path / "bundles"
+
+    # "Crisp" — one matching page, term in isolation → better (smaller) bm25 rank.
+    crisp = IngestPipeline(
+        bundles, FakeOCREngine(responses=[
+            [OCRRegion(text="synthesizer", bbox=(0,0,50,10), confidence=1.0)],
+        ]),
+        IngestOptions(title="Crisp", publication_date=date(1985, 1, 1)),
+    ).run(make_pdf(tmp_path / "crisp.pdf", num_pages=1))
+
+    # "Noisy" — one matching page, term buried in many unrelated words → worse rank.
+    noisy_text = (
+        "apple commodore atari amiga modem floppy disk drive printer "
+        "keyboard mouse joystick monitor cable cartridge cassette tape "
+        "synthesizer review continues with lengthy unrelated commentary "
+        "about hardware peripherals and software titles of the era"
+    )
+    noisy = IngestPipeline(
+        bundles, FakeOCREngine(responses=[
+            [OCRRegion(text=noisy_text, bbox=(0,0,500,10), confidence=1.0)],
+        ]),
+        IngestOptions(title="Noisy", publication_date=date(1986, 1, 1)),
+    ).run(make_pdf(tmp_path / "noisy.pdf", num_pages=1))
+
+    with session_scope(factory) as s:
+        import_bundle(crisp.bundle_dir, s)
+        import_bundle(noisy.bundle_dir, s)
+    return factory
+
+
+def test_search_magazines_sort_matches_tiebreak_by_rank(tied_match_count_db):
+    # Both issues have match_count == 1. With sort="matches", the better-ranked
+    # issue (Crisp — search term in isolation) must come first.
+    factory = tied_match_count_db
+    with session_scope(factory) as s:
+        groups = search_magazines(
+            s, "synthesizer", offset=0, limit=10, sort="matches",
+        )
+    assert len(groups) == 2
+    assert all(g.match_count == 1 for g in groups)
+    assert groups[0].magazine_id == "crisp-1985-01"
+    assert groups[1].magazine_id == "noisy-1986-01"
