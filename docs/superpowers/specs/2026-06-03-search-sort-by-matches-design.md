@@ -130,12 +130,13 @@ Add two tests to `tests/test_search.py`, alongside the existing
    "synthesizer"), assert that `sort="matches"` puts Byte first regardless of
    publication date.
 
-2. **`test_search_magazines_sort_matches_tiebreak_by_rank`** — a fixture (or
-   an extension of an existing one) where two issues have the same
-   `match_count` but different best-page FTS5 ranks. Assert ordering follows
-   `best_rank` ascending. If composing this fixture is awkward, fall back to
-   asserting via a direct comparison of `best_rank` between adjacent results
-   rather than baked-in IDs.
+2. **`test_search_magazines_sort_matches_tiebreak_by_rank`** — build a
+   fixture where two issues have the same `match_count` for the query but
+   one issue's best-matching page has a stronger FTS5 rank than the other
+   (e.g. the search term appears in isolation on one issue's page and
+   surrounded by many other terms on the other). Assert that
+   `sort="matches"` returns the two issues in descending `match_count`
+   order with the better-ranked issue first among ties.
 
 No new tests are required for the route layer — the existing route tests
 exercise `_validate_sort` via the `sort=` query parameter, and the
