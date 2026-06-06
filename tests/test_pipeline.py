@@ -54,6 +54,71 @@ def test_pipeline_produces_complete_bundle(tmp_path: Path):
         assert (bundle / c.path).exists()
 
 
+def _make_large_pdf(path: Path, page_pt: tuple[int, int] = (650, 950)) -> Path:
+    """A PDF whose rendered-at-200dpi long edge exceeds PAGE_LONG_EDGE (1800),
+    so encode_page actually downscales the displayed image. Required to exercise
+    the bbox rescaling path — small fixture PDFs render below 1800 px and would
+    be passed through unchanged, masking the scale factor."""
+    import fitz
+    doc = fitz.open()
+    for _ in range(1):
+        doc.new_page(width=page_pt[0], height=page_pt[1])
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+def test_pipeline_ocr_json_is_dict_with_rescaled_bboxes(tmp_path: Path):
+    src = _make_large_pdf(tmp_path / "big.pdf")
+    bundles = tmp_path / "bundles"
+    # A region whose bbox extends near the right/bottom edge of the source image
+    # so the rescaled coordinates differ visibly from the input.
+    src_region = OCRRegion(text="hello", bbox=(100.0, 200.0, 1500.0, 2400.0), confidence=0.9)
+    engine = FakeOCREngine(responses=[[src_region]])
+
+    result = IngestPipeline(
+        bundles_root=bundles, ocr_engine=engine,
+        options=IngestOptions(title="Big", publication_date=date(1985, 12, 1)),
+    ).run(src)
+
+    bundle = bundles / result.id
+    doc = json.loads((bundle / "ocr" / "0001.json").read_text())
+
+    # (a) New self-describing schema.
+    assert isinstance(doc, dict), "OCR JSON must be a dict, not a flat array"
+    assert set(doc) == {"width", "height", "regions"}
+    assert isinstance(doc["regions"], list)
+    assert doc["width"] > 0 and doc["height"] > 0
+
+    # The embedded width/height equal the displayed page image's natural dims.
+    with Image.open(bundle / "pages" / "0001.webp") as disp:
+        disp_w, disp_h = disp.size
+    assert doc["width"] == disp_w
+    assert doc["height"] == disp_h
+
+    # (b) Bbox scaling matches encode_page's resize. The OCR engine "saw" the
+    # full-resolution rendered page; the bundle's displayed page is downscaled.
+    # Reconstruct the same source image the engine received to recover src dims.
+    from magsearch.ingest.formats import detect_format, read_pages
+    fmt = detect_format(src)
+    src_w, src_h = next(read_pages(src, fmt))[1].size
+    sx = disp_w / src_w
+    sy = disp_h / src_h
+    # Sanity-check the scenario: the displayed image must actually be smaller,
+    # otherwise the test would pass trivially with sx = sy = 1.
+    assert sx < 0.95 and sy < 0.95, f"expected real downscaling, got sx={sx}, sy={sy}"
+
+    (rx0, ry0, rx1, ry1) = doc["regions"][0]["bbox"]
+    assert rx0 == src_region.bbox[0] * sx
+    assert ry0 == src_region.bbox[1] * sy
+    assert rx1 == src_region.bbox[2] * sx
+    assert ry1 == src_region.bbox[3] * sy
+
+    # Resulting bbox stays inside the displayed-image coordinate space.
+    assert 0 <= rx0 < rx1 <= disp_w
+    assert 0 <= ry0 < ry1 <= disp_h
+
+
 def test_pipeline_is_idempotent_without_force(tmp_path: Path):
     src = make_pdf(tmp_path / "byte.pdf", num_pages=1)
     bundles = tmp_path / "bundles"
