@@ -8,6 +8,7 @@ import typer
 import uvicorn
 from alembic import command
 from alembic.config import Config
+from PIL import Image
 from sqlalchemy import select
 
 from magsearch.bulk_import import bulk_import
@@ -286,6 +287,133 @@ def bulk_import_cmd(
         f"{result.skipped} skipped — state at {result.state_file}",
     )
     if result.failed and not halt_on_error:
+        raise typer.Exit(code=1)
+
+
+@app.command("ocr-rescale")
+def ocr_rescale_cmd(
+    bundles_dir: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report planned changes without rewriting OCR JSONs."),
+) -> None:
+    """Rescale OCR bboxes in existing bundles to displayed-image pixel coords.
+
+    Older bundles wrote bboxes in original-page pixel coordinates (pre-resize),
+    but `pages/<NNNN>.webp` is the downscaled version. The page viewer's
+    search-term highlight overlay assumes bboxes are in displayed-image coords.
+    This command re-opens each bundle's `original.<ext>`, computes the scale
+    between original and displayed sizes per page, and rewrites the OCR JSONs
+    in the new self-describing format: {"width", "height", "regions": [...]}.
+
+    Idempotent via shape: array-shaped JSON is treated as old-format and
+    rescaled; dict-shaped JSON is treated as already-rescaled and left alone.
+    No OCR re-run.
+    """
+    import json as _json
+    from magsearch.ingest.formats import detect_format, read_pages
+
+    bundles = sorted(p for p in bundles_dir.iterdir() if p.is_dir() and (p / "manifest.json").exists())
+    if not bundles:
+        typer.echo(f"No bundles with manifest.json under {bundles_dir}", err=True)
+        raise typer.Exit(code=2)
+
+    rescaled_bundles = 0
+    skipped_bundles = 0
+    failed_bundles = 0
+    for bundle in bundles:
+        originals = list(bundle.glob("original.*"))
+        if not originals:
+            typer.echo(f"  ! {bundle.name}: no original.<ext> — skipping", err=True)
+            failed_bundles += 1
+            continue
+        original = originals[0]
+        try:
+            fmt = detect_format(original)
+        except Exception as exc:
+            typer.echo(f"  ! {bundle.name}: detect_format failed: {exc} — skipping", err=True)
+            failed_bundles += 1
+            continue
+
+        # Pre-flight: how many OCR JSONs are still in old (array) format?
+        all_ocr = sorted((bundle / "ocr").glob("*.json"))
+        pending_pages = set()
+        for ocr_path in all_ocr:
+            try:
+                data = _json.loads(ocr_path.read_text())
+            except Exception:
+                continue
+            if isinstance(data, list):
+                pending_pages.add(ocr_path.stem)
+
+        if not pending_pages:
+            typer.echo(f"  · {bundle.name}: all {len(all_ocr)} pages already in new format")
+            skipped_bundles += 1
+            continue
+
+        pages_rescaled = 0
+        pages_unhandled = 0
+        # Reset per-bundle so the exception reporter below can't print a
+        # page number left over from a previous bundle's iteration.
+        current_page_num: int | None = None
+        try:
+            seen_page_nums = set()
+            for page_num, src_image in read_pages(original, fmt):
+                current_page_num = page_num
+                stem = f"{page_num:04d}"
+                seen_page_nums.add(stem)
+                if stem not in pending_pages:
+                    continue
+                page_img = bundle / "pages" / f"{stem}.webp"
+                ocr_json = bundle / "ocr" / f"{stem}.json"
+                if not (page_img.exists() and ocr_json.exists()):
+                    continue
+                with Image.open(page_img) as disp:
+                    disp_w, disp_h = disp.size
+                src_w, src_h = src_image.size
+                regions = _json.loads(ocr_json.read_text())
+                if not isinstance(regions, list):
+                    continue  # already migrated since pre-flight (shouldn't happen)
+                sx = disp_w / src_w
+                sy = disp_h / src_h
+                new_doc = {
+                    "width": disp_w,
+                    "height": disp_h,
+                    "regions": [
+                        {
+                            "text": r["text"],
+                            "bbox": [r["bbox"][0] * sx, r["bbox"][1] * sy, r["bbox"][2] * sx, r["bbox"][3] * sy],
+                            "confidence": r["confidence"],
+                        }
+                        for r in regions
+                    ],
+                }
+                if not dry_run:
+                    ocr_json.write_text(_json.dumps(new_doc))
+                pages_rescaled += 1
+
+            # Pages in the bundle but missing from read_pages: leave alone.
+            pages_unhandled = len(pending_pages - seen_page_nums)
+        except Exception as exc:
+            page_ctx = current_page_num if current_page_num is not None else "?"
+            typer.echo(f"  ! {bundle.name}: read failed on page {page_ctx}: {exc}", err=True)
+            failed_bundles += 1
+            continue
+
+        suffix = " (dry-run)" if dry_run else ""
+        if pages_unhandled:
+            typer.echo(
+                f"  ! {bundle.name}: {pages_rescaled} pages rescaled{suffix}, "
+                f"{pages_unhandled} pages in bundle not present in original.<ext> — left untouched"
+            )
+        else:
+            typer.echo(f"  ✓ {bundle.name}: {pages_rescaled} pages rescaled{suffix}")
+        if pages_rescaled:
+            rescaled_bundles += 1
+
+    typer.echo(
+        f"ocr-rescale: {rescaled_bundles} bundles rewritten, "
+        f"{skipped_bundles} already in new format, {failed_bundles} failed",
+    )
+    if failed_bundles:
         raise typer.Exit(code=1)
 
 
