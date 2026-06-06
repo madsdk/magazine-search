@@ -351,9 +351,13 @@ def ocr_rescale_cmd(
 
         pages_rescaled = 0
         pages_unhandled = 0
+        # Reset per-bundle so the exception reporter below can't print a
+        # page number left over from a previous bundle's iteration.
+        current_page_num: int | None = None
         try:
             seen_page_nums = set()
             for page_num, src_image in read_pages(original, fmt):
+                current_page_num = page_num
                 stem = f"{page_num:04d}"
                 seen_page_nums.add(stem)
                 if stem not in pending_pages:
@@ -389,7 +393,7 @@ def ocr_rescale_cmd(
             # Pages in the bundle but missing from read_pages: leave alone.
             pages_unhandled = len(pending_pages - seen_page_nums)
         except Exception as exc:
-            page_ctx = page_num if 'page_num' in locals() else '?'
+            page_ctx = current_page_num if current_page_num is not None else "?"
             typer.echo(f"  ! {bundle.name}: read failed on page {page_ctx}: {exc}", err=True)
             failed_bundles += 1
             continue

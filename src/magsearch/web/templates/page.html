@@ -113,8 +113,10 @@
   #page-frame.is-zoomed { cursor: grab; }
   #page-frame.is-panning { cursor: grabbing; }
   #page-frame.is-panning img,
+  #page-frame.is-panning #highlight-overlay,
   #page-frame.is-initial,
-  #page-frame.is-initial img { transition: none; }
+  #page-frame.is-initial img,
+  #page-frame.is-initial #highlight-overlay { transition: none; }
   #page-frame img {
     position: absolute;
     top: 50%;
@@ -233,7 +235,16 @@
         " rotate(" + r + "deg)" +
         " scale(" + (rotScale * z) + ")";
       img.style.transform = t;
-      if (overlay) overlay.style.transform = t;
+      if (overlay) {
+        // Establish the SVG's intrinsic aspect ratio (via viewBox) as soon
+        // as we know the image's natural dims — otherwise an inline <svg>
+        // with `height: auto` and no viewBox falls back to the 300×150
+        // default and the overlay sits in the wrong layout box.
+        if (!overlay.hasAttribute("viewBox")) {
+          overlay.setAttribute("viewBox", "0 0 " + nw + " " + nh);
+        }
+        overlay.style.transform = t;
+      }
     }
 
     function rotate90() {
