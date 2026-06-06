@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from PIL import Image
+
 from magsearch.ingest.formats import detect_format, page_count, read_pages
 from magsearch.ingest.ids import content_hash, generate_id, resolve_unique_id
 from magsearch.ingest.normalize import encode_page, encode_thumb, write_cover
@@ -102,10 +104,30 @@ class IngestPipeline:
                     page_num, source.name, exc,
                 )
                 regions = []
-            ocr_json.write_text(json.dumps([
-                {"text": r.text, "bbox": list(r.bbox), "confidence": r.confidence}
-                for r in regions
-            ]))
+            # OCR runs on the full-resolution source image; the page image
+            # served to the browser is downscaled by encode_page. Rescale
+            # bboxes into displayed-image pixel coordinates so the page
+            # viewer's highlight overlay can use them directly. Stored as
+            # {"width", "height", "regions": [...]} — the dict shape marks
+            # the file as already in displayed-image coords, which keeps
+            # the migration command's "needs rescaling?" check unambiguous.
+            with Image.open(page_img) as _disp:
+                disp_w, disp_h = _disp.size
+            src_w, src_h = image.size
+            sx = disp_w / src_w if src_w else 1.0
+            sy = disp_h / src_h if src_h else 1.0
+            ocr_json.write_text(json.dumps({
+                "width": disp_w,
+                "height": disp_h,
+                "regions": [
+                    {
+                        "text": r.text,
+                        "bbox": [r.bbox[0] * sx, r.bbox[1] * sy, r.bbox[2] * sx, r.bbox[3] * sy],
+                        "confidence": r.confidence,
+                    }
+                    for r in regions
+                ],
+            }))
             page_text = concatenate_reading_order(regions)
 
             page_entries.append(PageEntry(

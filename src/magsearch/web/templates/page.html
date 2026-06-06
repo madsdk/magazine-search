@@ -44,6 +44,13 @@
               title="Zoom in (+)" aria-label="Zoom in">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="11" y1="8" x2="11" y2="14"/></svg>
       </button>
+      {% if q %}
+        <button type="button" id="highlight-btn" class="icon-btn"
+                title="Highlight search terms (H)" aria-label="Highlight search terms"
+                aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l-4 4v4h4l4-4"/><path d="M13 7l4 4"/><path d="M14 4l6 6-7 7-6-6z"/></svg>
+        </button>
+      {% endif %}
       {% if auth_enabled and current_user() and current_user().is_researcher %}
         <button type="button" id="save-to-research-btn" class="icon-btn"
                 title="Save to research (S)" aria-label="Save to research"
@@ -80,6 +87,9 @@
 <figure class="py-10">
   <div id="page-frame" class="cover-frame inline-block w-full is-initial" data-rotation="0">
     <img id="page-img" src="/bundle/{{ page.image_path }}" alt="page {{ page.page_number }}">
+    {% if q %}
+      <svg id="highlight-overlay" aria-hidden="true" preserveAspectRatio="none"></svg>
+    {% endif %}
   </div>
 </figure>
 
@@ -119,6 +129,29 @@
     transition: transform 0.25s ease;
     -webkit-user-drag: none;
   }
+  /* Highlight overlay sits exactly on top of the page image and shares its
+     transform, so OCR bbox rects (in natural-pixel viewBox coordinates) track
+     rotation/zoom/pan automatically. */
+  #highlight-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: auto;
+    transform-origin: center center;
+    transform: translate(-50%, -50%);
+    transition: transform 0.25s ease, opacity 0.15s ease;
+    pointer-events: none;
+    opacity: 0;
+  }
+  #highlight-overlay.is-active { opacity: 1; }
+  #highlight-overlay rect {
+    fill: rgba(247, 200, 50, 0.32);
+    stroke: rgba(180, 130, 0, 0.55);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+  }
+  #highlight-btn[aria-pressed="true"] { color: var(--accent); }
 
   .icon-btn {
     display: inline-flex;
@@ -139,15 +172,20 @@
 {%- set _qs = ('?q=' ~ q|urlencode) if q else '' -%}
 {%- set _prev_href = ('/magazine/' ~ mag.id ~ '/page/' ~ (page.page_number - 1) ~ _qs) if has_prev else none -%}
 {%- set _next_href = ('/magazine/' ~ mag.id ~ '/page/' ~ (page.page_number + 1) ~ _qs) if has_next else none -%}
+{%- set _ocr_url = ('/bundle/' ~ mag.id ~ '/ocr/' ~ '%04d' % page.page_number ~ '.json') if q else none -%}
 <script>
   (function () {
     var prev = {{ _prev_href|tojson }};
     var next = {{ _next_href|tojson }};
+    var rawQuery = {{ q|tojson }};
+    var ocrUrl = {{ _ocr_url|tojson }};
     var frame = document.getElementById("page-frame");
     var img = document.getElementById("page-img");
     var rotateBtn = document.getElementById("rotate-btn");
     var zoomInBtn = document.getElementById("zoom-in-btn");
     var zoomOutBtn = document.getElementById("zoom-out-btn");
+    var highlightBtn = document.getElementById("highlight-btn");
+    var overlay = document.getElementById("highlight-overlay");
 
     // Zoom and rotation share one transform on the image. Composition (CSS
     // applies right-to-left): scale → rotate → pan-translate → centering-translate.
@@ -189,11 +227,13 @@
       frame.style.paddingBottom = (ratio * 100) + "%";
       clampPan();
       frame.classList.toggle("is-zoomed", z > 1);
-      img.style.transform =
+      var t =
         "translate(-50%, -50%)" +
         " translate(" + panX + "px, " + panY + "px)" +
         " rotate(" + r + "deg)" +
         " scale(" + (rotScale * z) + ")";
+      img.style.transform = t;
+      if (overlay) overlay.style.transform = t;
     }
 
     function rotate90() {
@@ -225,8 +265,8 @@
       });
     }
     if (img) {
-      if (img.complete && img.naturalWidth) { applyTransform(); enableTransitions(); }
-      else img.addEventListener("load", function () { applyTransform(); enableTransitions(); });
+      if (img.complete && img.naturalWidth) { applyTransform(); enableTransitions(); renderHighlights(); }
+      else img.addEventListener("load", function () { applyTransform(); enableTransitions(); renderHighlights(); });
     }
     if (rotateBtn) rotateBtn.addEventListener("click", rotate90);
     if (zoomInBtn) zoomInBtn.addEventListener("click", function () { setZoom(zoomIdx + 1); });
@@ -260,6 +300,122 @@
       frame.addEventListener("pointercancel", endDrag);
     }
 
+    // ─── search-term highlighting ───────────────────────────────────────────
+    // The page is rendered with ?q=<query>, and the OCR bundle for the page
+    // contains {text, bbox} regions. When highlighting is enabled, we fetch
+    // the OCR JSON, prefix-match each region's words against the query tokens
+    // (approximating FTS5's Porter stemmer), and render a <rect> per match
+    // into the SVG overlay. The overlay's viewBox matches the image's
+    // natural pixel dimensions, so bbox coordinates map 1:1 to rect coords.
+    var HIGHLIGHT_KEY = "magsearch.highlightOnPage";
+    var SAFE_WORD_RE = /[a-z0-9]+/g;
+    var highlightOn = false;
+    var ocrRegions = null;
+    var ocrFetchStarted = false;
+    var queryTokens = (function () {
+      if (!rawQuery) return [];
+      var m = String(rawQuery).toLowerCase().match(SAFE_WORD_RE);
+      return m || [];
+    })();
+
+    // Approximate FTS5's Porter stemmer with a shared-prefix heuristic:
+    // a query token "computing" should highlight OCR words "computer" /
+    // "computers" / "compute" (all share the stem "comput"). Two guards:
+    // (1) the shared prefix must be at least 4 chars (avoids noise like
+    //     "art" matching "around" on a 2-char overlap),
+    // (2) the longer word can extend the shared prefix by at most 3 chars
+    //     (the typical max length of a Porter suffix like -ing/-ers/-tion).
+    // Without (2), "honeysoft" would falsely match "honey" via a 5-char
+    // shared prefix, because the extra "soft" isn't a stem-stripped suffix.
+    function tokenMatches(word, token) {
+      if (word === token) return true;
+      if (token.length < 4) return false;  // exact-match only for short queries
+      var n = word.length < token.length ? word.length : token.length;
+      var i = 0;
+      while (i < n && word.charCodeAt(i) === token.charCodeAt(i)) i++;
+      if (i < 4) return false;
+      var longer = word.length > token.length ? word.length : token.length;
+      return (longer - i) <= 3;
+    }
+
+    function regionMatches(region) {
+      if (!region || typeof region.text !== "string") return false;
+      var words = region.text.toLowerCase().match(SAFE_WORD_RE);
+      if (!words) return false;
+      for (var i = 0; i < words.length; i++) {
+        var w = words[i];
+        for (var j = 0; j < queryTokens.length; j++) {
+          if (tokenMatches(w, queryTokens[j])) return true;
+        }
+      }
+      return false;
+    }
+
+    function renderHighlights() {
+      if (!overlay || !img || !img.naturalWidth || !img.naturalHeight) return;
+      // Clear existing rects.
+      while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+      overlay.setAttribute("viewBox", "0 0 " + img.naturalWidth + " " + img.naturalHeight);
+      if (!highlightOn || !ocrRegions || !queryTokens.length) {
+        overlay.classList.remove("is-active");
+        return;
+      }
+      var SVG_NS = "http://www.w3.org/2000/svg";
+      var frag = document.createDocumentFragment();
+      for (var i = 0; i < ocrRegions.length; i++) {
+        var region = ocrRegions[i];
+        if (!regionMatches(region)) continue;
+        var bbox = region.bbox;
+        if (!bbox || bbox.length < 4) continue;
+        var rect = document.createElementNS(SVG_NS, "rect");
+        rect.setAttribute("x", bbox[0]);
+        rect.setAttribute("y", bbox[1]);
+        rect.setAttribute("width", Math.max(0, bbox[2] - bbox[0]));
+        rect.setAttribute("height", Math.max(0, bbox[3] - bbox[1]));
+        frag.appendChild(rect);
+      }
+      overlay.appendChild(frag);
+      overlay.classList.add("is-active");
+    }
+
+    function ensureOcrLoaded() {
+      if (ocrRegions || ocrFetchStarted || !ocrUrl) return;
+      ocrFetchStarted = true;
+      fetch(ocrUrl, { credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          // New format: {width, height, regions: [...]}. Legacy: a flat
+          // array. Both can appear in production until all bundles have
+          // been migrated by `magsearch ocr-rescale`.
+          if (data && Array.isArray(data.regions)) {
+            ocrRegions = data.regions;
+          } else if (Array.isArray(data)) {
+            ocrRegions = data;
+          } else {
+            ocrRegions = [];
+          }
+          renderHighlights();
+        })
+        .catch(function () { ocrRegions = []; });
+    }
+
+    function setHighlight(on, persist) {
+      highlightOn = !!on;
+      if (highlightBtn) highlightBtn.setAttribute("aria-pressed", highlightOn ? "true" : "false");
+      if (persist) {
+        try { localStorage.setItem(HIGHLIGHT_KEY, highlightOn ? "1" : "0"); } catch (_) {}
+      }
+      if (highlightOn) ensureOcrLoaded();
+      renderHighlights();
+    }
+
+    if (highlightBtn && overlay && queryTokens.length) {
+      var initial = false;
+      try { initial = localStorage.getItem(HIGHLIGHT_KEY) === "1"; } catch (_) {}
+      setHighlight(initial, false);
+      highlightBtn.addEventListener("click", function () { setHighlight(!highlightOn, true); });
+    }
+
     document.addEventListener("keydown", function (e) {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       var t = e.target;
@@ -289,6 +445,11 @@
         if (saveBtn && saveModal && saveModal.hidden) {
           e.preventDefault();
           saveBtn.click();
+        }
+      } else if (e.key === "h" || e.key === "H") {
+        if (highlightBtn && queryTokens.length) {
+          e.preventDefault();
+          setHighlight(!highlightOn, true);
         }
       }
     });
