@@ -25,12 +25,14 @@
 
   // ─── reader state ────────────────────────────────────────────────────────
   var pages = null;            // [{n, image_path}], filled by loadPages()
+  var pagesByNum = null;       // {n: page}, built alongside pages in loadPages()
   var current = CFG.start_page; // 1-based page number currently centered
   var stage, track;            // DOM: clipping stage + the 3-slide track
   var dragging = false;
+  var animating = false;
 
   function imgUrl(pageNumber) {
-    var p = pages && pages[pageNumber - 1];
+    var p = pagesByNum && pagesByNum[pageNumber];
     return p ? CFG.bundle_base + p.image_path : null;
   }
 
@@ -94,13 +96,16 @@
   // Flip by dir (-1 prev, +1 next). Animate the track fully off, then re-centre
   // on the new page and re-point the slides (which restores the buffer).
   function flip(dir) {
+    if (animating) return;
     if (!canGo(dir)) { setTrackX(0, true); return; }
     var width = stage.clientWidth;
+    animating = true;
     setTrackX(-dir * width, true);
     window.setTimeout(function () {
       current += dir;
       onPageChanged();
       syncSlides(); // re-centres (animate=false) and rebuilds the buffer
+      animating = false;
     }, FLIP_MS);
   }
 
@@ -108,14 +113,15 @@
   function onPageChanged() {}
 
   // ─── swipe handling via Pointer Events ───────────────────────────────────
-  var startX = 0, startY = 0, startT = 0, lastX = 0, lastT = 0, axis = null;
+  var startX = 0, startY = 0, lastX = 0, lastT = 0, axis = null;
   var vx = 0; // instantaneous horizontal velocity in px/ms, tracked across pointermove samples
   function bindSwipe() {
     stage.addEventListener("pointerdown", function (e) {
       if (e.isPrimary === false) return;
+      if (animating) return;
       dragging = true; axis = null;
       startX = lastX = e.clientX; startY = e.clientY;
-      startT = lastT = e.timeStamp;
+      lastT = e.timeStamp;
       vx = 0;
       stage.setPointerCapture(e.pointerId);
     });
@@ -169,7 +175,11 @@
   function loadPages() {
     return fetch(CFG.pages_url, { credentials: "same-origin" })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-      .then(function (data) { pages = data.pages || []; });
+      .then(function (data) {
+        pages = data.pages || [];
+        pagesByNum = {};
+        for (var i = 0; i < pages.length; i++) pagesByNum[pages[i].n] = pages[i];
+      });
   }
 
   injectStyles();
