@@ -76,10 +76,12 @@
     setTrackX(0, false);
   }
 
+  var FLIP_MS = 250; // slide animation duration; CSS transition and the post-flip recentre timeout must agree
+
   // Translate the track. animate=true uses a CSS transition; during a finger
   // drag we set animate=false so it tracks 1:1.
   function setTrackX(px, animate) {
-    track.style.transition = animate ? "transform 0.25s ease" : "none";
+    track.style.transition = animate ? ("transform " + (FLIP_MS / 1000) + "s ease") : "none";
     // The centre slide is the second of three, so the resting offset is -100%.
     track.style.transform = "translateX(calc(-100% + " + px + "px))";
   }
@@ -99,7 +101,7 @@
       current += dir;
       onPageChanged();
       syncSlides(); // re-centres (animate=false) and rebuilds the buffer
-    }, 250);
+    }, FLIP_MS);
   }
 
   // Hook for the next task (reset zoom, update page indicator). Safe no-op now.
@@ -107,17 +109,22 @@
 
   // ─── swipe handling via Pointer Events ───────────────────────────────────
   var startX = 0, startY = 0, startT = 0, lastX = 0, lastT = 0, axis = null;
+  var vx = 0; // instantaneous horizontal velocity in px/ms, tracked across pointermove samples
   function bindSwipe() {
     stage.addEventListener("pointerdown", function (e) {
       if (e.isPrimary === false) return;
       dragging = true; axis = null;
       startX = lastX = e.clientX; startY = e.clientY;
       startT = lastT = e.timeStamp;
+      vx = 0;
       stage.setPointerCapture(e.pointerId);
     });
     stage.addEventListener("pointermove", function (e) {
       if (!dragging) return;
       var dx = e.clientX - startX, dy = e.clientY - startY;
+      // Track velocity from inter-sample delta before overwriting lastX/lastT.
+      var dtMove = e.timeStamp - lastT;
+      if (dtMove > 0) vx = (e.clientX - lastX) / dtMove;
       // Lock to an axis on first meaningful movement so vertical scrolling
       // intent doesn't drag the page sideways.
       if (axis === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
@@ -136,8 +143,6 @@
       try { stage.releasePointerCapture(e.pointerId); } catch (_) {}
       if (axis !== "x") { setTrackX(0, false); return; }
       var dx = e.clientX - startX;
-      var dt = Math.max(1, e.timeStamp - lastT);
-      var vx = (e.clientX - lastX) / dt;
       var dir = decideFlip(dx, vx, stage.clientWidth);
       if (dir !== 0 && canGo(dir)) flip(dir);
       else setTrackX(0, true);
