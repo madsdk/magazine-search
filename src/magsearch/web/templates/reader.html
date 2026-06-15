@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>{{ mag.title }} · reading</title>
+<style>
+  /* The reader owns the whole viewport; no scrolling, no rubber-banding. */
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #14110c;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+  <!-- reader.js reads this config and the pages.json endpoint, then builds the
+       carousel into #reader-root. -->
+  <div id="reader-root"></div>
+  <script id="reader-config" type="application/json">
+    {{ config_json | safe }}
+  </script>
+  <script src="/static/reader.js" defer></script>
+</body>
+</html>

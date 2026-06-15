@@ -1,3 +1,4 @@
+import json
 from itertools import groupby
 from pathlib import Path
 
@@ -295,6 +296,37 @@ def magazine_pages_json(
             {"n": p.page_number, "image_path": p.image_path} for p in pages
         ],
     }
+
+
+@router.get("/magazine/{magazine_id}/read/{page}", response_class=HTMLResponse)
+def reader_view(
+    request: Request,
+    magazine_id: str,
+    page: int,
+    q: str = Query(default=""),
+    db: Session = Depends(get_db),
+    user=Depends(require_user),
+) -> HTMLResponse:
+    mag = db.get(Magazine, magazine_id)
+    if mag is None:
+        raise HTTPException(status_code=404, detail="magazine not found")
+    # Clamp into 1..page_count rather than 404 — a stale/over-shot page
+    # number should still open the reader at a valid page.
+    start_page = max(1, min(page, mag.page_count))
+    config = {
+        "magazine_id": magazine_id,
+        "start_page": start_page,
+        "page_count": mag.page_count,
+        "q": q,
+        "pages_url": f"/magazine/{magazine_id}/pages.json",
+        "bundle_base": "/bundle/",
+        "page_url_base": f"/magazine/{magazine_id}/page/",
+    }
+    return _TEMPLATES.TemplateResponse(
+        request,
+        "reader.html",
+        {"mag": mag, "config_json": json.dumps(config).replace("<", "\\u003c")},
+    )
 
 
 @router.get("/magazine/{magazine_id}/page/{page_number}", response_class=HTMLResponse)
