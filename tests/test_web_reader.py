@@ -89,3 +89,17 @@ def test_reader_carries_query(app_client):
     resp = client.get("/magazine/byte-1985-12/read/1?q=synthesizer")
     assert resp.status_code == 200
     assert '"q": "synthesizer"' in resp.text
+
+
+def test_page_viewer_has_reader_button(app_client):
+    client, _ = app_client
+    resp = client.get("/magazine/byte-1985-12/page/2")
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12/read/2" in resp.text
+
+
+def test_page_viewer_reader_button_carries_query(app_client):
+    client, _ = app_client
+    resp = client.get("/magazine/byte-1985-12/page/1?q=synthesizer")
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12/read/1?q=synthesizer" in resp.text
