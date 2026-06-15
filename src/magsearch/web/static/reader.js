@@ -65,6 +65,7 @@
       img.className = "reader-img";
       img.draggable = false;
       img.alt = "";
+      img.onerror = function () { this.style.visibility = "hidden"; };
       slide.appendChild(img);
       track.appendChild(slide);
     }
@@ -89,6 +90,7 @@
       img.style.transform = "";
       img.style.transition = "";
       if (url) {
+        img.style.visibility = "";
         if (img.getAttribute("src") !== url) img.setAttribute("src", url);
       } else {
         img.removeAttribute("src");
@@ -366,6 +368,7 @@
 
   loadPages().then(function () {
     syncSlides();
+    showOverlay();
   }).catch(function () {
     root.textContent = "Could not load this issue.";
   });
