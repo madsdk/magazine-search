@@ -30,15 +30,20 @@
   var stage, track;            // DOM: clipping stage + the 3-slide track
   var dragging = false;
   var animating = false;
+  var lastTapT = 0;        // timestamp of last tap, for double-tap detection
 
   // ─── overlay + zoom state ──────────────────────────────────────────────────
   var overlay, pageLabel, hideTimer = null;
   var zoom = 1, panX = 0, panY = 0;
   var ZOOM_IN = 2.5;
+  var MAX_ZOOM = 4;             // upper clamp for pinch zoom
+  var DOUBLE_TAP_GAP_MS = 300;  // max gap between taps to count as a double-tap
+  var TAP_MAX_MS = 300;         // max pointer-down duration to count as a tap
+  var TAP_SLOP = 8;             // px movement slop for taps and axis-locking
+  var OVERLAY_HIDE_MS = 3000;   // overlay auto-hide delay
   var activePointers = {};
   var pinchStartDist = 0, pinchStartZoom = 1;
   var lastTY = 0;          // last clientY, used while panning a zoomed page
-  var lastTapT = 0;        // timestamp of last tap, for double-tap detection
 
   function imgUrl(pageNumber) {
     var p = pagesByNum && pagesByNum[pageNumber];
@@ -78,6 +83,11 @@
       var img = slides[i].firstChild;
       var url = (n >= 1 && n <= CFG.page_count) ? imgUrl(n) : null;
       slides[i].dataset.empty = url ? "" : "1";
+      // Clear any stale zoom transform a slide retained from a previous page;
+      // resetZoom (via onPageChanged, after syncSlides) re-applies the centre
+      // image's identity transform.
+      img.style.transform = "";
+      img.style.transition = "";
       if (url) {
         if (img.getAttribute("src") !== url) img.setAttribute("src", url);
       } else {
@@ -109,6 +119,7 @@
     if (!canGo(dir)) { setTrackX(0, true); return; }
     var width = stage.clientWidth;
     animating = true;
+    lastTapT = 0; // a proceeding flip cancels any pending double-tap-zoom on the old page
     setTrackX(-dir * width, true);
     window.setTimeout(function () {
       current += dir;
@@ -160,19 +171,29 @@
     if (hideTimer) window.clearTimeout(hideTimer);
     hideTimer = window.setTimeout(function () {
       overlay.classList.remove("is-visible");
-    }, 3000);
+    }, OVERLAY_HIDE_MS);
   }
 
   // ─── zoom helpers ──────────────────────────────────────────────────────────
   function centerImg() { return track.children[1].firstChild; }
-  function applyZoom() {
+  function clampPan() {
+    // Allowed pan: the zoomed image extends beyond the stage by
+    // (zoom - 1) * stageSize / 2 in each direction. Mirrors page.html's clampPan.
+    var maxX = Math.max(0, (zoom - 1) * stage.clientWidth / 2);
+    var maxY = Math.max(0, (zoom - 1) * stage.clientHeight / 2);
+    if (panX > maxX) panX = maxX;
+    if (panX < -maxX) panX = -maxX;
+    if (panY > maxY) panY = maxY;
+    if (panY < -maxY) panY = -maxY;
+  }
+  function applyZoom(animate) {
     var img = centerImg();
     if (!img) return;
+    clampPan();
+    img.style.transition = animate ? "transform .15s ease" : "none";
     img.style.transform = "translate(" + panX + "px," + panY + "px) scale(" + zoom + ")";
-    img.style.transition = "transform .15s ease";
-    stage.dataset.zoomed = zoom > 1 ? "1" : "";
   }
-  function resetZoom() { zoom = 1; panX = 0; panY = 0; applyZoom(); }
+  function resetZoom() { zoom = 1; panX = 0; panY = 0; applyZoom(false); }
   function dist(a, b) { var dx = a.x - b.x, dy = a.y - b.y; return Math.sqrt(dx * dx + dy * dy); }
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -205,10 +226,10 @@
 
       // Double-tap toggles zoom on the current page.
       var now = e.timeStamp;
-      if (now - lastTapT < 300) {
+      if (now - lastTapT < DOUBLE_TAP_GAP_MS) {
         zoom = (zoom === 1) ? ZOOM_IN : 1;
         if (zoom === 1) { panX = 0; panY = 0; }
-        applyZoom();
+        applyZoom(true);
         lastTapT = 0;
         return;
       }
@@ -228,8 +249,8 @@
       // Pinch: rescale relative to the gesture's starting spread.
       if (ids.length === 2) {
         var p = activePointers[ids[0]], q = activePointers[ids[1]];
-        zoom = clamp(pinchStartZoom * (dist(p, q) / pinchStartDist), 1, 4);
-        applyZoom();
+        zoom = clamp(pinchStartZoom * (dist(p, q) / pinchStartDist), 1, MAX_ZOOM);
+        applyZoom(false);
         return;
       }
 
@@ -240,7 +261,7 @@
       if (zoom > 1) {
         panX += (e.clientX - lastX);
         panY += (e.clientY - lastTY);
-        applyZoom();
+        applyZoom(false);
         lastX = e.clientX; lastTY = e.clientY; lastT = e.timeStamp;
         return;
       }
@@ -252,7 +273,7 @@
 
       // Lock to an axis on first meaningful movement so vertical scrolling
       // intent doesn't drag the page sideways.
-      if (axis === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+      if (axis === null && (Math.abs(dx) > TAP_SLOP || Math.abs(dy) > TAP_SLOP)) {
         axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
       }
       if (axis === "x") {
@@ -269,7 +290,7 @@
       var movedX = Math.abs(e.clientX - startX);
       var movedY = Math.abs(e.clientY - startY);
       var elapsed = e.timeStamp - downT; // downT is the pointerdown time
-      var isTap = movedX < 8 && movedY < 8 && elapsed < 300;
+      var isTap = movedX < TAP_SLOP && movedY < TAP_SLOP && elapsed < TAP_MAX_MS;
       dragging = false;
       try { stage.releasePointerCapture(e.pointerId); } catch (_) {}
 
