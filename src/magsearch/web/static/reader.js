@@ -31,6 +31,15 @@
   var dragging = false;
   var animating = false;
 
+  // ─── overlay + zoom state ──────────────────────────────────────────────────
+  var overlay, pageLabel, hideTimer = null;
+  var zoom = 1, panX = 0, panY = 0;
+  var ZOOM_IN = 2.5;
+  var activePointers = {};
+  var pinchStartDist = 0, pinchStartZoom = 1;
+  var lastTY = 0;          // last clientY, used while panning a zoomed page
+  var lastTapT = 0;        // timestamp of last tap, for double-tap detection
+
   function imgUrl(pageNumber) {
     var p = pagesByNum && pagesByNum[pageNumber];
     return p ? CFG.bundle_base + p.image_path : null;
@@ -103,34 +112,144 @@
     setTrackX(-dir * width, true);
     window.setTimeout(function () {
       current += dir;
-      onPageChanged();
+      // syncSlides() runs BEFORE onPageChanged() so the slide <img>s are
+      // re-pointed at the new prev/current/next first; the callbacks (which
+      // include resetZoom) then operate on the NEW centre image.
       syncSlides(); // re-centres (animate=false) and rebuilds the buffer
+      onPageChanged();
       animating = false;
     }, FLIP_MS);
   }
 
-  // Hook for the next task (reset zoom, update page indicator). Safe no-op now.
-  function onPageChanged() {}
+  // Hook for page-change side effects (reset zoom, update page indicator).
+  // Supports multiple registered callbacks; runs them in registration order.
+  var pageChangeCbs = [];
+  function onPageChanged() {
+    for (var i = 0; i < pageChangeCbs.length; i++) pageChangeCbs[i]();
+  }
 
-  // ─── swipe handling via Pointer Events ───────────────────────────────────
+  // ─── overlay (auto-hiding top bar with exit + page indicator) ──────────────
+  function buildOverlay() {
+    overlay = document.createElement("div");
+    overlay.id = "reader-overlay";
+    var exit = document.createElement("a");
+    exit.id = "reader-exit";
+    exit.setAttribute("aria-label", "Exit reader");
+    exit.textContent = "✕";
+    exit.href = exitHref();
+    pageLabel = document.createElement("div");
+    pageLabel.id = "reader-pagelabel";
+    overlay.appendChild(exit);
+    overlay.appendChild(pageLabel);
+    root.appendChild(overlay);
+    pageChangeCbs.push(function () {
+      exit.href = exitHref();
+      updatePageLabel();
+    });
+    updatePageLabel();
+  }
+  function exitHref() {
+    return CFG.page_url_base + current + (CFG.q ? "?q=" + encodeURIComponent(CFG.q) : "");
+  }
+  function updatePageLabel() {
+    if (pageLabel) pageLabel.textContent = "p. " + current + " / " + CFG.page_count;
+  }
+  function showOverlay() {
+    if (!overlay) return;
+    overlay.classList.add("is-visible");
+    if (hideTimer) window.clearTimeout(hideTimer);
+    hideTimer = window.setTimeout(function () {
+      overlay.classList.remove("is-visible");
+    }, 3000);
+  }
+
+  // ─── zoom helpers ──────────────────────────────────────────────────────────
+  function centerImg() { return track.children[1].firstChild; }
+  function applyZoom() {
+    var img = centerImg();
+    if (!img) return;
+    img.style.transform = "translate(" + panX + "px," + panY + "px) scale(" + zoom + ")";
+    img.style.transition = "transform .15s ease";
+    stage.dataset.zoomed = zoom > 1 ? "1" : "";
+  }
+  function resetZoom() { zoom = 1; panX = 0; panY = 0; applyZoom(); }
+  function dist(a, b) { var dx = a.x - b.x, dy = a.y - b.y; return Math.sqrt(dx * dx + dy * dy); }
+  function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+  // ─── swipe / tap / pinch / pan handling via Pointer Events ────────────────
   var startX = 0, startY = 0, lastX = 0, lastT = 0, axis = null;
-  var vx = 0; // instantaneous horizontal velocity in px/ms, tracked across pointermove samples
+  var vx = 0;       // instantaneous horizontal velocity in px/ms, tracked across pointermove samples
+  var downT = 0;    // pointerdown timestamp, used only for tap-duration detection
   function bindSwipe() {
     stage.addEventListener("pointerdown", function (e) {
-      if (e.isPrimary === false) return;
+      // INVARIANT 1: never start interaction mid-animation. Returning at the
+      // very top (before touching activePointers/zoom/drag state) keeps state
+      // clean and blocks drag/tap/double-tap/pinch starts while flipping.
       if (animating) return;
+
+      activePointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var ids = Object.keys(activePointers);
+
+      // Two fingers down → start a pinch; suspend any one-finger swipe.
+      if (ids.length === 2) {
+        var p = activePointers[ids[0]], q = activePointers[ids[1]];
+        pinchStartDist = dist(p, q) || 1;
+        pinchStartZoom = zoom;
+        dragging = false;
+        return;
+      }
+
+      // Ignore spurious non-primary single pointers (the 2-finger case above
+      // handles a legitimate second finger).
+      if (e.isPrimary === false) return;
+
+      // Double-tap toggles zoom on the current page.
+      var now = e.timeStamp;
+      if (now - lastTapT < 300) {
+        zoom = (zoom === 1) ? ZOOM_IN : 1;
+        if (zoom === 1) { panX = 0; panY = 0; }
+        applyZoom();
+        lastTapT = 0;
+        return;
+      }
+      lastTapT = now;
+
       dragging = true; axis = null;
       startX = lastX = e.clientX; startY = e.clientY;
-      lastT = e.timeStamp;
+      lastT = e.timeStamp; lastTY = e.clientY; downT = e.timeStamp;
       vx = 0;
       stage.setPointerCapture(e.pointerId);
     });
+
     stage.addEventListener("pointermove", function (e) {
+      if (activePointers[e.pointerId]) activePointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var ids = Object.keys(activePointers);
+
+      // Pinch: rescale relative to the gesture's starting spread.
+      if (ids.length === 2) {
+        var p = activePointers[ids[0]], q = activePointers[ids[1]];
+        zoom = clamp(pinchStartZoom * (dist(p, q) / pinchStartDist), 1, 4);
+        applyZoom();
+        return;
+      }
+
       if (!dragging) return;
       var dx = e.clientX - startX, dy = e.clientY - startY;
-      // Track velocity from inter-sample delta before overwriting lastX/lastT.
+
+      // ARBITRATION: when zoomed, one-finger drag PANS (swipe suspended).
+      if (zoom > 1) {
+        panX += (e.clientX - lastX);
+        panY += (e.clientY - lastTY);
+        applyZoom();
+        lastX = e.clientX; lastTY = e.clientY; lastT = e.timeStamp;
+        return;
+      }
+
+      // INVARIANT 2: per-sample velocity from inter-sample delta, computed
+      // BEFORE lastX/lastT are overwritten below.
       var dtMove = e.timeStamp - lastT;
       if (dtMove > 0) vx = (e.clientX - lastX) / dtMove;
+
       // Lock to an axis on first meaningful movement so vertical scrolling
       // intent doesn't drag the page sideways.
       if (axis === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
@@ -141,14 +260,32 @@
         if ((dx > 0 && !canGo(-1)) || (dx < 0 && !canGo(1))) dx *= 0.3;
         setTrackX(dx, false);
       }
-      lastX = e.clientX; lastT = e.timeStamp;
+      lastX = e.clientX; lastTY = e.clientY; lastT = e.timeStamp;
     });
+
     var end = function (e) {
-      if (!dragging) return;
+      delete activePointers[e.pointerId];
+      if (!dragging) { try { stage.releasePointerCapture(e.pointerId); } catch (_) {} return; }
+      var movedX = Math.abs(e.clientX - startX);
+      var movedY = Math.abs(e.clientY - startY);
+      var elapsed = e.timeStamp - downT; // downT is the pointerdown time
+      var isTap = movedX < 8 && movedY < 8 && elapsed < 300;
       dragging = false;
       try { stage.releasePointerCapture(e.pointerId); } catch (_) {}
+
+      // Tap zones only apply when not zoomed.
+      if (isTap && zoom === 1) {
+        var w = stage.clientWidth;
+        if (e.clientX < w * 0.25) { if (canGo(-1)) flip(-1); }
+        else if (e.clientX > w * 0.75) { if (canGo(1)) flip(1); }
+        else { showOverlay(); }
+        return;
+      }
+      // A drag that ended while zoomed was a pan; nothing to settle.
+      if (zoom > 1) return;
       if (axis !== "x") { setTrackX(0, false); return; }
       var dx = e.clientX - startX;
+      // INVARIANT 2/5: consume the per-sample vx via the pure decideFlip.
       var dir = decideFlip(dx, vx, stage.clientWidth);
       if (dir !== 0 && canGo(dir)) flip(dir);
       else setTrackX(0, true);
@@ -164,7 +301,14 @@
       "#reader-track{position:absolute;inset:0;display:flex;will-change:transform;}",
       ".reader-slide{position:relative;flex:0 0 100%;height:100%;}",
       ".reader-img{position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;" +
-        "object-fit:contain;-webkit-user-drag:none;}"
+        "object-fit:contain;-webkit-user-drag:none;transform-origin:center center;}",
+      "#reader-overlay{position:fixed;top:0;left:0;right:0;display:flex;" +
+        "align-items:center;justify-content:space-between;padding:14px 18px;" +
+        "color:#f1e9d6;font:600 14px/1 system-ui,sans-serif;letter-spacing:.04em;" +
+        "background:linear-gradient(#14110ccc,#14110c00);opacity:0;" +
+        "transition:opacity .2s ease;pointer-events:none;z-index:10;}",
+      "#reader-overlay.is-visible{opacity:1;pointer-events:auto;}",
+      "#reader-exit{color:#f1e9d6;text-decoration:none;font-size:22px;line-height:1;}"
     ].join("");
     var style = document.createElement("style");
     style.textContent = css;
@@ -184,20 +328,34 @@
 
   injectStyles();
   buildDom();
+  buildOverlay();
   bindSwipe();
+
+  // Reset zoom whenever we settle on a new page. Registered after buildOverlay
+  // and run inside flip()'s timeout AFTER syncSlides(), so it targets the new
+  // centre image.
+  pageChangeCbs.push(function () { resetZoom(); });
+
+  // Keyboard navigation.
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowLeft") { if (canGo(-1)) flip(-1); }
+    else if (e.key === "ArrowRight") { if (canGo(1)) flip(1); }
+    else if (e.key === "Escape") { window.location.href = exitHref(); }
+  });
+
   loadPages().then(function () {
     syncSlides();
   }).catch(function () {
     root.textContent = "Could not load this issue.";
   });
 
-  // Expose internals for the next task to extend without re-reading the DOM.
+  // Expose internals for other code to extend without re-reading the DOM.
   window.__reader = {
     get current() { return current; },
     set current(v) { current = v; },
     flip: flip,
     canGo: canGo,
     get pageCount() { return CFG.page_count; },
-    onPageChanged: function (fn) { onPageChanged = fn; }
+    onPageChanged: function (fn) { pageChangeCbs.push(fn); }
   };
 })();
