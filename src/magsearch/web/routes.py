@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from magsearch.models import Magazine
 from magsearch.models import Page as PageModel
 from magsearch.settings import Settings, get_settings
-from magsearch.web.deps import get_db
+from magsearch.web.deps import get_db, require_user
 from magsearch.web.search import (
     DEFAULT_FLAT_SORT,
     DEFAULT_PER_ISSUE_SORT,
@@ -273,6 +273,28 @@ def magazine_detail(
             "match_phrase": match_phrase_b,
         },
     )
+
+
+@router.get("/magazine/{magazine_id}/pages.json")
+def magazine_pages_json(
+    magazine_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_user),
+) -> dict:
+    mag = db.get(Magazine, magazine_id)
+    if mag is None:
+        raise HTTPException(status_code=404, detail="magazine not found")
+    pages = db.scalars(
+        select(PageModel)
+        .where(PageModel.magazine_id == magazine_id)
+        .order_by(PageModel.page_number)
+    ).all()
+    return {
+        "page_count": mag.page_count,
+        "pages": [
+            {"n": p.page_number, "image_path": p.image_path} for p in pages
+        ],
+    }
 
 
 @router.get("/magazine/{magazine_id}/page/{page_number}", response_class=HTMLResponse)
