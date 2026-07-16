@@ -6,7 +6,7 @@
 {%- macro search_url(view_=None, sort_=None, per_page_=None, page_=1, match_all_=None, match_phrase_=None) -%}
 {%- set ma = match_all_ if match_all_ is not none else (1 if match_all else 0) -%}
 {%- set mp = match_phrase_ if match_phrase_ is not none else (1 if match_phrase else 0) -%}
-/search?q={{ q|urlencode }}&view={{ view_ or view }}&sort={{ sort_ or sort }}&per_page={{ per_page_ or per_page }}&match_all={{ ma }}&match_phrase={{ mp }}&year_from={{ year_from or '' }}&year_to={{ year_to or '' }}&page={{ page_ }}
+/search?q={{ q|urlencode }}&view={{ view_ or view }}&sort={{ sort_ or sort }}&per_page={{ per_page_ or per_page }}&match_all={{ ma }}&match_phrase={{ mp }}&year_from={{ year_from or '' }}&year_to={{ year_to or '' }}{% if mag_scope == 'custom' %}&mag_scope=custom{% for t in all_titles if t in selected_titles %}&mag={{ t|urlencode }}{% endfor %}{% endif %}&page={{ page_ }}
 {%- endmacro -%}
 
 {# ─────────────────────── header ─────────────────────── #}
@@ -34,6 +34,7 @@
     <input type="hidden" name="view" value="{{ view }}">
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="per_page" value="{{ per_page }}">
+    <input type="hidden" name="mag_scope" value="all">
     <div class="flex items-end gap-4">
       <input type="text" name="q"
              value="{{ q }}"
@@ -69,6 +70,24 @@
                class="field-year">
       </span>
     </div>
+    <details class="mt-3"{% if mag_scope == 'custom' %} open{% endif %}>
+      <summary class="caps caps-soft cursor-pointer">limit to magazines{% if mag_scope == 'custom' %} <span class="ornament">·</span> {{ selected_titles|length }} of {{ all_titles|length }}{% endif %}</summary>
+      <div class="mt-3">
+        <div class="mb-3 flex gap-4 caps caps-soft">
+          <button type="button" data-mag-all class="accent hover:underline">check all</button>
+          <button type="button" data-mag-none class="accent hover:underline">check none</button>
+        </div>
+        <div class="mag-grid">
+          {% for t in all_titles %}
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" name="mag" value="{{ t }}"{% if t in selected_titles %} checked{% endif %}
+                   class="accent-[var(--accent)]">
+            <span class="italic font-serif">{{ t }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+    </details>
   </form>
 </section>
 

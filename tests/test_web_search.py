@@ -383,12 +383,14 @@ def test_search_route_grouped_accepts_matches_sort(app_client):
 def test_search_year_filter_narrows_results(app_client):
     client, _ = app_client
     # Flat view, restrict to 1985 → Byte only, Compute (1984) excluded.
+    # (Both titles still appear as checkboxes in the magazine-scope panel,
+    # so we check the actual result link rather than the bare title text.)
     resp = client.get("/search", params={
         "q": "synthesizer", "view": "flat", "year_from": "1985",
     })
     assert resp.status_code == 200
-    assert "Byte" in resp.text
-    assert "Compute" not in resp.text
+    assert "/magazine/byte-1985-12" in resp.text
+    assert "/magazine/compute-1984-06" not in resp.text
 
 
 def test_search_year_to_filters_out_newer(app_client):
@@ -397,8 +399,8 @@ def test_search_year_to_filters_out_newer(app_client):
         "q": "synthesizer", "view": "flat", "year_to": "1984",
     })
     assert resp.status_code == 200
-    assert "Compute" in resp.text
-    assert "Byte" not in resp.text
+    assert "/magazine/compute-1984-06" in resp.text
+    assert "/magazine/byte-1985-12" not in resp.text
 
 
 def test_search_bad_year_does_not_500(app_client):
@@ -484,3 +486,42 @@ def test_search_scope_unknown_title_does_not_500(app_client):
     assert resp.status_code == 200
     assert "/magazine/byte-1985-12" not in resp.text
     assert "/magazine/compute-1984-06" not in resp.text
+
+
+def test_search_panel_lists_all_titles_checked_by_default(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={"q": "synthesizer"})
+    assert resp.status_code == 200
+    assert "limit to magazines" in resp.text
+    assert 'value="Byte"' in resp.text
+    assert 'value="Compute"' in resp.text
+    # Default: every box checked.
+    import re
+    assert re.search(r'value="Byte"[^>]*\bchecked', resp.text)
+    assert re.search(r'value="Compute"[^>]*\bchecked', resp.text)
+
+
+def test_search_panel_reflects_custom_selection(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "mag_scope": "custom", "mag": "Byte",
+    })
+    assert resp.status_code == 200
+    import re
+    # Byte checked, Compute not.
+    assert re.search(r'value="Byte"[^>]*\bchecked', resp.text)
+    assert not re.search(r'value="Compute"[^>]*\bchecked', resp.text)
+    # Panel is open and shows the count.
+    assert re.search(r"<details[^>]*\bopen", resp.text)
+    assert "1 of 2" in resp.text
+
+
+def test_search_scope_persists_across_view_toggle(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "mag_scope": "custom", "mag": "Byte",
+    })
+    assert resp.status_code == 200
+    # The grouped→flat toggle link carries the selection.
+    assert "mag_scope=custom" in resp.text
+    assert "mag=Byte" in resp.text

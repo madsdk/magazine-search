@@ -161,6 +161,16 @@
   .field-year::-webkit-outer-spin-button,
   .field-year::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
+  /* Scrollable grid of magazine-scope checkboxes. */
+  .mag-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    gap: 0.25rem 1.5rem;
+    max-height: 15rem;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+  }
+
   /* Tiny "go" button rendered as a typographic mark. */
   .mark-go {
     font-family: "Fraunces", serif;
