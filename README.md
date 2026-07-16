@@ -374,7 +374,9 @@ docker run -d --name magsearch --restart unless-stopped \
 This:
 
 1. Builds a Python 3.11 slim image with `unrar-free` installed for CBR
-   support.
+   support, and the `[ingest]` extra (PyMuPDF + rarfile) so `magsearch
+   ocr-rescale` and `magsearch check` run in-container. (No GPU / PaddleOCR —
+   full re-ingestion still uses `Dockerfile.ingest`.)
 2. Bind-mounts `./data` to `/data` in the container — that's where the
    SQLite file and the bundle directories live.
 3. Runs `magsearch db upgrade` on start, then `magsearch web` on
@@ -390,14 +392,24 @@ To import a bundle that you rsync'd into `./data/bundles/`:
 docker exec magsearch magsearch import /data/bundles/<magazine-id>
 ```
 
+To audit bundles or fix misaligned OCR highlights in place (neither needs a
+GPU or re-ingestion):
+
+```bash
+docker exec magsearch magsearch check /data/bundles/<magazine-id>
+docker exec magsearch magsearch ocr-rescale /data/bundles --dry-run
+docker exec magsearch magsearch ocr-rescale /data/bundles
+```
+
 To inspect or back up: just copy `./data/` — that directory is the entire
 deployment state.
 
 ### Two Dockerfiles
 
-- `Dockerfile` — server only. Lightweight Python 3.11 slim image, no GPU,
-  no PaddleOCR. Runs the FastAPI app and serves bundles. The section above
-  covers it.
+- `Dockerfile` — server side. Lightweight Python 3.11 slim image, no GPU,
+  no PaddleOCR. Runs the FastAPI app and serves bundles, and includes the
+  `[ingest]` deps so `import`, `check`, and `ocr-rescale` work via `docker
+  exec`. The section above covers it.
 - `Dockerfile.ingest` — GPU ingestion. CUDA + cuDNN + paddlepaddle-gpu +
   paddleocr + the `magsearch` CLI. Use it on the workstation; it's
   documented under [Docker (GPU ingestion)](#docker-gpu-ingestion) above.

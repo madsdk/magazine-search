@@ -11,7 +11,11 @@ COPY src/ ./src/
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 
-RUN pip install --no-cache-dir .
+# Include the [ingest] extra (PyMuPDF + rarfile) so `magsearch ocr-rescale`
+# can re-read each bundle's original.<ext>. unrar-free (installed above) is
+# rarfile's CBR backend. No GPU / PaddleOCR here — full re-ingestion still
+# belongs in Dockerfile.ingest.
+RUN pip install --no-cache-dir ".[ingest]"
 
 RUN mkdir -p /data/bundles
 ENV MAGSEARCH_DATABASE_URL=sqlite:////data/magsearch.db
