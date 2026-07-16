@@ -142,6 +142,25 @@
   .field-small:focus { outline: none; border-bottom-color: var(--accent); }
   .field-small::placeholder { color: var(--ink-faint); }
 
+  /* Compact year inputs for the search filter — narrow, centered, no spinners. */
+  .field-year {
+    width: 4.5rem;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--ink);
+    font-family: "Newsreader", serif;
+    font-style: italic;
+    font-size: 0.95rem;
+    text-align: center;
+    padding: 0.2rem 0;
+    color: var(--ink);
+  }
+  .field-year:focus { outline: none; border-bottom-color: var(--accent); }
+  .field-year::placeholder { color: var(--ink-faint); font-style: italic; }
+  .field-year[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+  .field-year::-webkit-outer-spin-button,
+  .field-year::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
   /* Tiny "go" button rendered as a typographic mark. */
   .mark-go {
     font-family: "Fraunces", serif;

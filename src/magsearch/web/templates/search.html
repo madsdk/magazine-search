@@ -58,18 +58,16 @@
                class="accent-[var(--accent)]">
         <span>match words in order</span>
       </label>
-      <label class="flex items-center gap-2">
-        <span>from year</span>
+      <span class="flex items-center gap-2">
+        <span>published</span>
         <input type="number" name="year_from" value="{{ year_from or '' }}"
-               placeholder="—" inputmode="numeric"
-               class="field-editorial w-20">
-      </label>
-      <label class="flex items-center gap-2">
-        <span>to year</span>
+               placeholder="from" inputmode="numeric" aria-label="from year"
+               class="field-year">
+        <span class="ornament">–</span>
         <input type="number" name="year_to" value="{{ year_to or '' }}"
-               placeholder="—" inputmode="numeric"
-               class="field-editorial w-20">
-      </label>
+               placeholder="to" inputmode="numeric" aria-label="to year"
+               class="field-year">
+      </span>
     </div>
   </form>
 </section>
