@@ -1,5 +1,7 @@
 import html
 import shutil
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,6 +15,43 @@ from magsearch.models import Magazine, Page
 
 class ImportError(Exception):
     """Raised when a bundle cannot be imported safely."""
+
+
+@dataclass
+class ResolvedTargets:
+    found: list[Magazine]
+    not_found: list[str]
+
+
+def resolve_magazines(
+    session: Session,
+    ids: Sequence[str],
+    title: str | None = None,
+) -> ResolvedTargets:
+    """Resolve IDs + an optional exact title into magazines to delete.
+
+    IDs are looked up in order; unknown IDs go to `not_found`. A title (matched
+    case-insensitively, exactly) adds every issue sharing it. The union is
+    deduped by id, keeping requested IDs first then title-only matches by id.
+    """
+    found: list[Magazine] = []
+    seen: set[str] = set()
+    not_found: list[str] = []
+    for mid in ids:
+        mag = session.get(Magazine, mid)
+        if mag is None:
+            not_found.append(mid)
+            continue
+        if mag.id not in seen:
+            seen.add(mag.id)
+            found.append(mag)
+    if title is not None:
+        needle = title.lower()
+        for mag in session.scalars(select(Magazine).order_by(Magazine.id)):
+            if mag.title.lower() == needle and mag.id not in seen:
+                seen.add(mag.id)
+                found.append(mag)
+    return ResolvedTargets(found=found, not_found=not_found)
 
 
 def delete_bundle_dir(bundles_root: Path, magazine_id: str) -> None:

@@ -7,7 +7,7 @@ from alembic.config import Config
 from sqlalchemy import select, text
 
 from magsearch.db import make_engine, make_session_factory, session_scope
-from magsearch.importer import ImportError as MagImportError, import_bundle
+from magsearch.importer import ImportError as MagImportError, import_bundle, resolve_magazines, ResolvedTargets
 from magsearch.ingest.ocr import FakeOCREngine, OCRRegion
 from magsearch.ingest.pipeline import IngestOptions, IngestPipeline
 from magsearch.models import Magazine, Page
@@ -113,3 +113,53 @@ def test_import_rejects_corrupt_bundle(tmp_path, db):
     with pytest.raises(MagImportError, match="checksum"):
         with session_scope(factory) as s:
             import_bundle(bundle, s)
+
+
+def _import(factory, bundle):
+    with session_scope(factory) as s:
+        import_bundle(bundle, s)
+
+
+def test_resolve_by_id_found_and_missing(tmp_path, db):
+    factory, _ = db
+    _import(factory, _ingested_bundle(tmp_path, title="Byte", num_pages=1))
+    with session_scope(factory) as s:
+        r = resolve_magazines(s, ["byte-1985-12", "nope-1999-01"], None)
+        assert [m.id for m in r.found] == ["byte-1985-12"]
+        assert r.not_found == ["nope-1999-01"]
+
+
+def test_resolve_by_title_case_insensitive_multiple(tmp_path, db):
+    factory, _ = db
+    _import(factory, _ingested_bundle(tmp_path / "a", title="Byte", num_pages=1))
+    # Second issue, same title, different date -> different id.
+    (tmp_path / "b").mkdir(parents=True, exist_ok=True)
+    src = make_pdf(tmp_path / "b" / "Byte.pdf", num_pages=1)
+    from magsearch.ingest.ocr import FakeOCREngine, OCRRegion
+    from magsearch.ingest.pipeline import IngestOptions, IngestPipeline
+    pipeline = IngestPipeline(
+        bundles_root=tmp_path / "b" / "bundles",
+        ocr_engine=FakeOCREngine(responses=[[OCRRegion(text="w", bbox=(0, 0, 5, 5), confidence=1.0)]]),
+        options=IngestOptions(title="Byte", publication_date=date(1986, 1, 1)),
+    )
+    _import(factory, pipeline.run(src).bundle_dir)
+    with session_scope(factory) as s:
+        r = resolve_magazines(s, [], "byte")
+        assert [m.id for m in r.found] == ["byte-1985-12", "byte-1986-01"]
+        assert r.not_found == []
+
+
+def test_resolve_by_title_unicode_case_insensitive(tmp_path, db):
+    factory, _ = db
+    _import(factory, _ingested_bundle(tmp_path, title="Datalære", num_pages=1))
+    with session_scope(factory) as s:
+        assert [m.title for m in resolve_magazines(s, [], "DATALÆRE").found] == ["Datalære"]
+        assert [m.title for m in resolve_magazines(s, [], "datalære").found] == ["Datalære"]
+
+
+def test_resolve_dedupes_id_and_title(tmp_path, db):
+    factory, _ = db
+    _import(factory, _ingested_bundle(tmp_path, title="Byte", num_pages=1))
+    with session_scope(factory) as s:
+        r = resolve_magazines(s, ["byte-1985-12"], "Byte")
+        assert [m.id for m in r.found] == ["byte-1985-12"]  # not duplicated

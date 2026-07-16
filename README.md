@@ -319,6 +319,21 @@ bundle, with its own state log at
 already imported are skipped, and bundles previously marked `failed` are
 skipped unless `--retry-failed` is passed.
 
+## Deleting magazines
+
+Remove one or more magazines — database rows, search index, and bundle files —
+from the command line (mirrors the admin UI's per-issue delete):
+
+```bash
+magsearch delete <magazine-id> [<magazine-id> ...]
+magsearch delete --title "Computer Gaming World"     # all issues of a title
+magsearch delete --title "Computer Gaming World" --yes   # no prompt (scripts)
+```
+
+Prints a summary and asks for confirmation; `--yes`/`-y` skips the prompt for
+non-interactive use (e.g. `docker exec magsearch magsearch delete … --yes`).
+Deletion is permanent; re-run `magsearch import` on the bundle to restore.
+
 ## Deploying the web app with Docker
 
 The repo ships a `Dockerfile` for the server side (no GPU, no PaddleOCR).
