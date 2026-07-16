@@ -31,7 +31,7 @@ def _ingest_two_magazines(bundles_dir: Path, src_dir: Path):
         IngestPipeline(
             bundles_dir,
             FakeOCREngine(responses=[
-                [OCRRegion(text="apple ii basic", bbox=(0,0,50,10), confidence=1.0)],
+                [OCRRegion(text="synthesizer apple ii basic", bbox=(0,0,50,10), confidence=1.0)],
             ]),
             IngestOptions(title="Compute", publisher="ABC Publishing",
                           publication_date=date(1984, 6, 1)),
