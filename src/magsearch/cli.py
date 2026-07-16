@@ -13,8 +13,13 @@ from sqlalchemy import select
 
 from magsearch.bulk_import import bulk_import
 from magsearch.db import make_engine, make_session_factory, session_scope
-from magsearch.importer import ImportError as MagImportError, import_bundle
-from magsearch.models import User
+from magsearch.importer import (
+    ImportError as MagImportError,
+    delete_bundle_dir,
+    import_bundle,
+    resolve_magazines,
+)
+from magsearch.models import Magazine, User
 from magsearch.settings import get_settings
 from magsearch.web.auth import hash_password, normalize_username
 
@@ -248,6 +253,68 @@ def import_cmd(bundle: Annotated[Path, typer.Argument(exists=True, file_okay=Fal
     except MagImportError as exc:
         typer.echo(f"import failed: {exc}", err=True)
         raise typer.Exit(code=1)
+
+
+def _bundle_dir_size(path: Path) -> int:
+    if not path.exists():
+        return 0
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+def _mb(n: int) -> str:
+    return f"{n / (1024 * 1024):.1f} MB"
+
+
+@app.command("delete")
+def delete_cmd(
+    ids: Annotated[list[str] | None, typer.Argument(help="Magazine IDs to delete.")] = None,
+    title: Annotated[str | None, typer.Option("--title", help="Also delete every issue with this exact title (case-insensitive).")] = None,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")] = False,
+) -> None:
+    """Delete magazines: DB rows, search index, and on-disk bundle files."""
+    ids = ids or []
+    if not ids and not title:
+        typer.echo("delete: specify at least one magazine ID or --title", err=True)
+        raise typer.Exit(code=2)
+
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    factory = make_session_factory(engine)
+
+    deleted_ids: list[str] = []
+    total_pages = 0
+    total_bytes = 0
+    with session_scope(factory) as s:
+        targets = resolve_magazines(s, ids, title)
+        for missing in targets.not_found:
+            typer.echo(f"  ! not found: {missing}", err=True)
+        if not targets.found:
+            typer.echo("no matching magazines to delete", err=True)
+            raise typer.Exit(code=1)
+
+        rows = []
+        for mag in targets.found:
+            size = _bundle_dir_size(settings.bundles_dir / mag.id)
+            total_pages += mag.page_count
+            total_bytes += size
+            issue = f" №{mag.issue}" if mag.issue else ""
+            rows.append(f"  {mag.id} — {mag.title}{issue} ({mag.page_count} pages, {_mb(size)})")
+
+        typer.echo(f"Will delete {len(targets.found)} magazine(s), {total_pages} pages, {_mb(total_bytes)}:")
+        for line in rows:
+            typer.echo(line)
+
+        if not yes:
+            typer.confirm("Proceed?", abort=True)
+
+        deleted_ids = [m.id for m in targets.found]
+        for mag in targets.found:
+            s.delete(mag)
+    # session committed here (DB-first); now remove files.
+    for mid in deleted_ids:
+        delete_bundle_dir(settings.bundles_dir, mid)
+
+    typer.echo(f"deleted {len(deleted_ids)} magazine(s), {total_pages} pages, freed ~{_mb(total_bytes)}")
 
 
 @app.command("bulk-import")
