@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from magsearch.ingest.ids import content_hash
@@ -46,13 +46,9 @@ def resolve_magazines(
             seen.add(mag.id)
             found.append(mag)
     if title is not None:
-        stmt = (
-            select(Magazine)
-            .where(func.lower(Magazine.title) == title.lower())
-            .order_by(Magazine.id)
-        )
-        for mag in session.scalars(stmt):
-            if mag.id not in seen:
+        needle = title.lower()
+        for mag in session.scalars(select(Magazine).order_by(Magazine.id)):
+            if mag.title.lower() == needle and mag.id not in seen:
                 seen.add(mag.id)
                 found.append(mag)
     return ResolvedTargets(found=found, not_found=not_found)

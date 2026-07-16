@@ -145,8 +145,16 @@ def test_resolve_by_title_case_insensitive_multiple(tmp_path, db):
     _import(factory, pipeline.run(src).bundle_dir)
     with session_scope(factory) as s:
         r = resolve_magazines(s, [], "byte")
-        assert {m.id for m in r.found} == {"byte-1985-12", "byte-1986-01"}
+        assert [m.id for m in r.found] == ["byte-1985-12", "byte-1986-01"]
         assert r.not_found == []
+
+
+def test_resolve_by_title_unicode_case_insensitive(tmp_path, db):
+    factory, _ = db
+    _import(factory, _ingested_bundle(tmp_path, title="Datalære", num_pages=1))
+    with session_scope(factory) as s:
+        assert [m.title for m in resolve_magazines(s, [], "DATALÆRE").found] == ["Datalære"]
+        assert [m.title for m in resolve_magazines(s, [], "datalære").found] == ["Datalære"]
 
 
 def test_resolve_dedupes_id_and_title(tmp_path, db):
