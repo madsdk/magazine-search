@@ -10,16 +10,18 @@ from alembic import command
 from alembic.config import Config
 from PIL import Image
 from sqlalchemy import select
+from sqlalchemy.exc import DatabaseError
 
 from magsearch.bulk_import import bulk_import
 from magsearch.db import make_engine, make_session_factory, session_scope
+from magsearch.health import check_bundle, check_fts_integrity, iter_all_target_ids
 from magsearch.importer import (
     ImportError as MagImportError,
     delete_bundle_dir,
     import_bundle,
     resolve_magazines,
 )
-from magsearch.models import User
+from magsearch.models import Magazine, User
 from magsearch.settings import get_settings
 from magsearch.web.auth import hash_password, normalize_username
 
@@ -315,6 +317,119 @@ def delete_cmd(
         delete_bundle_dir(settings.bundles_dir, mid)
 
     typer.echo(f"deleted {len(deleted_ids)} magazine(s), {total_pages} pages, freed ~{_mb(total_bytes)}")
+
+
+def _print_report(report) -> None:
+    header = report.magazine_id
+    if report.title:
+        header += f" — {report.title}"
+    if report.issue:
+        header += f" №{report.issue}"
+    if report.page_count is not None:
+        header += f" ({report.page_count} pages)"
+    if report.ok:
+        typer.echo(f"{header} : OK")
+        return
+    typer.echo(header)
+    for f in report.findings:
+        loc = f"page {f.page:04d} " if f.page is not None else ""
+        path = f"{f.path} — " if f.path else ""
+        typer.echo(f"  {f.level.upper():5} {loc}{path}{f.message}")
+    typer.echo(f"  {len(report.errors)} error(s), {len(report.warnings)} warning(s)")
+
+
+@app.command("check")
+def check_cmd(
+    ids: Annotated[
+        list[str] | None,
+        typer.Argument(
+            help="Magazine IDs to check. With no IDs and no --title, checks every bundle."
+        ),
+    ] = None,
+    title: Annotated[
+        str | None,
+        typer.Option(
+            "--title", help="Also check every issue with this exact title (case-insensitive)."
+        ),
+    ] = None,
+    checksums: Annotated[
+        bool,
+        typer.Option(
+            "--checksums", help="Also verify every file's sha256 against the manifest (slow)."
+        ),
+    ] = False,
+    strict: Annotated[
+        bool,
+        typer.Option("--strict", help="Treat warnings as failures for the exit code."),
+    ] = False,
+) -> None:
+    """Audit bundles for missing files, corruption, and OCR problems."""
+    ids = ids or []
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    factory = make_session_factory(engine)
+
+    any_error = False
+    any_warning = False
+    clean = warn_only = with_errors = 0
+    total_errors = total_warnings = 0
+
+    try:
+        with session_scope(factory) as s:
+            if ids or title:
+                targets = resolve_magazines(s, ids, title)
+                for missing in targets.not_found:
+                    typer.echo(f"ERROR  {missing} — no such magazine")
+                    any_error = True
+                    total_errors += 1
+                target_ids = [m.id for m in targets.found]
+                if not target_ids and not targets.not_found:
+                    typer.echo("no matching magazines", err=True)
+                    raise typer.Exit(code=1)
+            else:
+                target_ids = iter_all_target_ids(s, settings.bundles_dir)
+                if not target_ids:
+                    typer.echo("no bundles found", err=True)
+                    raise typer.Exit(code=1)
+
+            fts = check_fts_integrity(s)
+            if fts is not None:
+                typer.echo(f"ERROR  {fts.message}")
+                any_error = True
+                total_errors += 1
+
+            for mid in target_ids:
+                mag_row = s.get(Magazine, mid)
+                page_rows = list(mag_row.pages) if mag_row is not None else []
+                report = check_bundle(
+                    settings.bundles_dir / mid, mid, mag_row, page_rows,
+                    verify_checksums=checksums,
+                )
+                _print_report(report)
+                total_errors += len(report.errors)
+                total_warnings += len(report.warnings)
+                if report.errors:
+                    with_errors += 1
+                    any_error = True
+                elif report.warnings:
+                    warn_only += 1
+                    any_warning = True
+                else:
+                    clean += 1
+    except DatabaseError as exc:
+        typer.echo(f"database error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    n = clean + warn_only + with_errors
+    typer.echo(
+        f"Summary: {n} bundle(s) — {clean} OK, {warn_only} with warnings, "
+        f"{with_errors} with errors ({total_errors} error(s), {total_warnings} warning(s))"
+    )
+
+    if any_error:
+        raise typer.Exit(code=1)
+    if strict and any_warning:
+        raise typer.Exit(code=1)
 
 
 @app.command("bulk-import")
