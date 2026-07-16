@@ -10,6 +10,7 @@ from magsearch.importer import import_bundle
 from magsearch.ingest.ocr import FakeOCREngine, OCRRegion
 from magsearch.ingest.pipeline import IngestOptions, IngestPipeline
 from magsearch.web.search import (
+    coerce_year_range,
     sanitize_query,
     search,
     search_in_magazine,
@@ -83,6 +84,37 @@ def test_sanitize_query_match_phrase_wraps_everything():
     assert sanitize_query("!@#", match_phrase=True) == ""
 
 
+def test_coerce_year_range_parses_valid_years():
+    assert coerce_year_range("1980", "1985") == (1980, 1985)
+    assert coerce_year_range(1980, 1985) == (1980, 1985)
+    assert coerce_year_range(" 1980 ", " 1985 ") == (1980, 1985)
+
+
+def test_coerce_year_range_blank_bounds_are_none():
+    assert coerce_year_range("", "") == (None, None)
+    assert coerce_year_range("1980", "") == (1980, None)
+    assert coerce_year_range("", "1985") == (None, 1985)
+    assert coerce_year_range(None, None) == (None, None)
+
+
+def test_coerce_year_range_junk_is_none():
+    assert coerce_year_range("abc", "19x5") == (None, None)
+    assert coerce_year_range("1980.0", "nineteen") == (None, None)
+
+
+def test_coerce_year_range_out_of_range_is_none():
+    assert coerce_year_range("0", "20260") == (None, None)
+    assert coerce_year_range("999", "10000") == (None, None)
+    # Boundaries are inclusive.
+    assert coerce_year_range("1000", "9999") == (1000, 9999)
+
+
+def test_coerce_year_range_swaps_reversed():
+    assert coerce_year_range("1985", "1980") == (1980, 1985)
+    # Only swaps when BOTH are set.
+    assert coerce_year_range("1985", "") == (1985, None)
+
+
 def test_search_returns_stemmed_hits(populated_db):
     factory = populated_db
     with session_scope(factory) as s:
@@ -142,6 +174,90 @@ def two_magazines_db(tmp_path, monkeypatch):
         import_bundle(byte.bundle_dir, s)
         import_bundle(compute.bundle_dir, s)
     return factory
+
+
+@pytest.fixture
+def dated_corpus_db(tmp_path, monkeypatch):
+    """Three magazines all matching 'synthesizer': two dated, one undated."""
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("MAGSEARCH_DATABASE_URL", f"sqlite:///{db_path}")
+    cfg = Config(str(Path(__file__).parent.parent / "alembic.ini"))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    command.upgrade(cfg, "head")
+    engine = make_engine(f"sqlite:///{db_path}")
+    factory = make_session_factory(engine)
+    bundles = tmp_path / "bundles"
+
+    byte = IngestPipeline(
+        bundles, FakeOCREngine(responses=[
+            [OCRRegion(text="vintage synthesizer review", bbox=(0,0,50,10), confidence=1.0)],
+        ]),
+        IngestOptions(title="Byte", publication_date=date(1985, 12, 1)),
+    ).run(make_pdf(tmp_path / "byte.pdf", num_pages=1, page_text=["byte"]))
+
+    compute = IngestPipeline(
+        bundles, FakeOCREngine(responses=[
+            [OCRRegion(text="synthesizer programming tutorial", bbox=(0,0,50,10), confidence=1.0)],
+        ]),
+        IngestOptions(title="Compute", publication_date=date(1984, 6, 1)),
+    ).run(make_pdf(tmp_path / "compute.pdf", num_pages=1, page_text=["compute"]))
+
+    retro = IngestPipeline(
+        bundles, FakeOCREngine(responses=[
+            [OCRRegion(text="synthesizer sounds sampled", bbox=(0,0,50,10), confidence=1.0)],
+        ]),
+        IngestOptions(title="Retro", publication_date=None),
+    ).run(make_pdf(tmp_path / "retro.pdf", num_pages=1, page_text=["retro"]))
+
+    with session_scope(factory) as s:
+        import_bundle(byte.bundle_dir, s)
+        import_bundle(compute.bundle_dir, s)
+        import_bundle(retro.bundle_dir, s)
+    return factory
+
+
+def _titles(results):
+    return {r.magazine_title for r in results}
+
+
+def test_search_no_year_filter_includes_undated(dated_corpus_db):
+    with session_scope(dated_corpus_db) as s:
+        results = search(s, "synthesizer", offset=0, limit=10)
+    assert _titles(results) == {"Byte", "Compute", "Retro"}
+
+
+def test_search_year_from_only(dated_corpus_db):
+    with session_scope(dated_corpus_db) as s:
+        results = search(s, "synthesizer", offset=0, limit=10, year_from=1985)
+    # Byte (1985) only; Compute (1984) below, Retro undated excluded.
+    assert _titles(results) == {"Byte"}
+
+
+def test_search_year_to_only(dated_corpus_db):
+    with session_scope(dated_corpus_db) as s:
+        results = search(s, "synthesizer", offset=0, limit=10, year_to=1984)
+    assert _titles(results) == {"Compute"}
+
+
+def test_search_year_closed_range_excludes_undated(dated_corpus_db):
+    with session_scope(dated_corpus_db) as s:
+        results = search(s, "synthesizer", offset=0, limit=10,
+                         year_from=1984, year_to=1985)
+    assert _titles(results) == {"Byte", "Compute"}
+
+
+def test_search_magazines_year_filter(dated_corpus_db):
+    with session_scope(dated_corpus_db) as s:
+        hits = search_magazines(s, "synthesizer", offset=0, limit=10,
+                                year_from=1984, year_to=1985)
+    assert {h.magazine_title for h in hits} == {"Byte", "Compute"}
+
+
+def test_search_magazines_year_filter_excludes_undated(dated_corpus_db):
+    with session_scope(dated_corpus_db) as s:
+        hits = search_magazines(s, "synthesizer", offset=0, limit=10,
+                                year_from=1980)
+    assert "Retro" not in {h.magazine_title for h in hits}
 
 
 def test_search_magazines_groups_by_magazine(two_magazines_db):

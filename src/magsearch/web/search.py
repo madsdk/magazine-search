@@ -8,6 +8,31 @@ from sqlalchemy.orm import Session
 
 _SAFE_WORD = re.compile(r"[A-Za-z0-9]+")
 
+_MIN_YEAR = 1000
+_MAX_YEAR = 9999
+
+
+def _parse_year(raw: object) -> int | None:
+    try:
+        year = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if year < _MIN_YEAR or year > _MAX_YEAR:
+        return None
+    return year
+
+
+def coerce_year_range(
+    raw_from: object, raw_to: object
+) -> tuple[int | None, int | None]:
+    """Parse/validate two year inputs. Non-numeric or out-of-range → None.
+    If both are set and from > to, swap them. Never raises."""
+    year_from = _parse_year(raw_from)
+    year_to = _parse_year(raw_to)
+    if year_from is not None and year_to is not None and year_from > year_to:
+        year_from, year_to = year_to, year_from
+    return year_from, year_to
+
 
 def sanitize_query(
     raw: str,
@@ -125,12 +150,15 @@ def _build_flat_sql() -> dict[str, "text"]:
         JOIN pages     ON pages_fts.rowid = pages.id
         JOIN magazines ON pages.magazine_id = magazines.id
         WHERE pages_fts MATCH :q
+          AND (:date_from IS NULL OR magazines.publication_date >= :date_from)
+          AND (:date_to   IS NULL OR magazines.publication_date <= :date_to)
         ORDER BY {clause}
         LIMIT :limit OFFSET :offset
     """
     return {
         sort: text(base.format(clause=clause)).bindparams(
-            bindparam("q"), bindparam("limit"), bindparam("offset")
+            bindparam("q"), bindparam("limit"), bindparam("offset"),
+            bindparam("date_from"), bindparam("date_to"),
         )
         for sort, clause in _FLAT_ORDER_CLAUSES.items()
     }
@@ -206,13 +234,16 @@ def _build_grouped_sql() -> dict[str, "text"]:
         JOIN pages     ON pages_fts.rowid = pages.id
         JOIN magazines ON pages.magazine_id = magazines.id
         WHERE pages_fts MATCH :q
+          AND (:date_from IS NULL OR magazines.publication_date >= :date_from)
+          AND (:date_to   IS NULL OR magazines.publication_date <= :date_to)
         GROUP BY magazines.id
         ORDER BY {clause}
         LIMIT :limit OFFSET :offset
     """
     return {
         sort: text(base.format(clause=clause)).bindparams(
-            bindparam("q"), bindparam("limit"), bindparam("offset")
+            bindparam("q"), bindparam("limit"), bindparam("offset"),
+            bindparam("date_from"), bindparam("date_to"),
         )
         for sort, clause in _GROUPED_ORDER_CLAUSES.items()
     }
@@ -222,6 +253,14 @@ _FLAT_SQL_BY_SORT = _build_flat_sql()
 _PER_ISSUE_SQL_BY_SORT = _build_per_issue_sql()
 _PER_TITLE_SQL_BY_SORT = _build_per_title_sql()
 _GROUPED_SQL_BY_SORT = _build_grouped_sql()
+
+
+def _date_bounds(
+    year_from: int | None, year_to: int | None
+) -> tuple[str | None, str | None]:
+    date_from = f"{year_from:04d}-01-01" if year_from is not None else None
+    date_to = f"{year_to:04d}-12-31" if year_to is not None else None
+    return date_from, date_to
 
 
 def _coerce_date(value: object) -> date | None:
@@ -257,13 +296,20 @@ def search(
     sort: str = DEFAULT_FLAT_SORT,
     match_all: bool = True,
     match_phrase: bool = False,
+    year_from: int | None = None,
+    year_to: int | None = None,
 ) -> list[SearchResult]:
     q = sanitize_query(raw_query, match_all=match_all, match_phrase=match_phrase)
     if not q:
         return []
+    date_from, date_to = _date_bounds(year_from, year_to)
     stmt = _pick(_FLAT_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)
     try:
-        rows = session.execute(stmt, {"q": q, "limit": limit, "offset": offset}).all()
+        rows = session.execute(
+            stmt,
+            {"q": q, "limit": limit, "offset": offset,
+             "date_from": date_from, "date_to": date_to},
+        ).all()
     except Exception:
         return []
     return [_row_to_result(r) for r in rows]
@@ -328,14 +374,19 @@ def search_magazines(
     sort: str = DEFAULT_FLAT_SORT,
     match_all: bool = True,
     match_phrase: bool = False,
+    year_from: int | None = None,
+    year_to: int | None = None,
 ) -> list[MagazineMatch]:
     q = sanitize_query(raw_query, match_all=match_all, match_phrase=match_phrase)
     if not q:
         return []
+    date_from, date_to = _date_bounds(year_from, year_to)
     stmt = _pick(_GROUPED_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)
     try:
         rows = session.execute(
-            stmt, {"q": q, "limit": limit, "offset": offset}
+            stmt,
+            {"q": q, "limit": limit, "offset": offset,
+             "date_from": date_from, "date_to": date_to},
         ).all()
     except Exception:
         return []

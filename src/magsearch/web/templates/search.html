@@ -6,7 +6,7 @@
 {%- macro search_url(view_=None, sort_=None, per_page_=None, page_=1, match_all_=None, match_phrase_=None) -%}
 {%- set ma = match_all_ if match_all_ is not none else (1 if match_all else 0) -%}
 {%- set mp = match_phrase_ if match_phrase_ is not none else (1 if match_phrase else 0) -%}
-/search?q={{ q|urlencode }}&view={{ view_ or view }}&sort={{ sort_ or sort }}&per_page={{ per_page_ or per_page }}&match_all={{ ma }}&match_phrase={{ mp }}&page={{ page_ }}
+/search?q={{ q|urlencode }}&view={{ view_ or view }}&sort={{ sort_ or sort }}&per_page={{ per_page_ or per_page }}&match_all={{ ma }}&match_phrase={{ mp }}&year_from={{ year_from or '' }}&year_to={{ year_to or '' }}&page={{ page_ }}
 {%- endmacro -%}
 
 {# ─────────────────────── header ─────────────────────── #}
@@ -57,6 +57,18 @@
         <input type="checkbox" name="match_phrase" value="1"{% if match_phrase %} checked{% endif %}
                class="accent-[var(--accent)]">
         <span>match words in order</span>
+      </label>
+      <label class="flex items-center gap-2">
+        <span>from year</span>
+        <input type="number" name="year_from" value="{{ year_from or '' }}"
+               placeholder="—" inputmode="numeric"
+               class="field-editorial w-20">
+      </label>
+      <label class="flex items-center gap-2">
+        <span>to year</span>
+        <input type="number" name="year_to" value="{{ year_to or '' }}"
+               placeholder="—" inputmode="numeric"
+               class="field-editorial w-20">
       </label>
     </div>
   </form>

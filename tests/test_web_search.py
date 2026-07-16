@@ -380,6 +380,58 @@ def test_search_route_grouped_accepts_matches_sort(app_client):
     assert byte_pos < compute_pos
 
 
+def test_search_year_filter_narrows_results(app_client):
+    client, _ = app_client
+    # Flat view, restrict to 1985 → Byte only, Compute (1984) excluded.
+    resp = client.get("/search", params={
+        "q": "synthesizer", "view": "flat", "year_from": "1985",
+    })
+    assert resp.status_code == 200
+    assert "Byte" in resp.text
+    assert "Compute" not in resp.text
+
+
+def test_search_year_to_filters_out_newer(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "view": "flat", "year_to": "1984",
+    })
+    assert resp.status_code == 200
+    assert "Compute" in resp.text
+    assert "Byte" not in resp.text
+
+
+def test_search_bad_year_does_not_500(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "view": "flat", "year_from": "abc", "year_to": "99999",
+    })
+    # Junk coerces to blank → behaves as no filter, both magazines return.
+    assert resp.status_code == 200
+    assert "Byte" in resp.text
+    assert "Compute" in resp.text
+
+
+def test_search_year_filter_prefills_form(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={"q": "synthesizer", "year_from": "1980"})
+    assert resp.status_code == 200
+    assert 'name="year_from"' in resp.text
+    assert 'value="1980"' in resp.text
+
+
+def test_search_year_filter_persists_across_view_toggle(app_client):
+    client, _ = app_client
+    # Grouped view offers a "show all matching pages" link to flat view;
+    # that link must carry the active year filter.
+    resp = client.get("/search", params={
+        "q": "synthesizer", "year_from": "1984", "year_to": "1985",
+    })
+    assert resp.status_code == 200
+    assert "year_from=1984" in resp.text
+    assert "year_to=1985" in resp.text
+
+
 def test_search_route_flat_rejects_matches_sort(app_client):
     # sort=matches is not valid in the flat view; _validate_sort must fall
     # back to the default. The response should still render 200 and the
