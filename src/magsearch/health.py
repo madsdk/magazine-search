@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL import Image
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
 
 from magsearch.ingest.ids import content_hash
 from magsearch.manifest import Manifest
@@ -197,3 +199,25 @@ def check_bundle(
         manifest.page_count,
         findings,
     )
+
+
+def check_fts_integrity(session: "Session") -> Finding | None:
+    """Verify the pages_fts index is consistent with the pages content table.
+
+    pages_fts is an external-content FTS5 table; its built-in 'integrity-check'
+    command validates the index against pages. Returns a run-level error
+    Finding on failure, else None. Reads only — does not modify data.
+    """
+    try:
+        session.execute(text("INSERT INTO pages_fts(pages_fts) VALUES ('integrity-check')"))
+        return None
+    except Exception as exc:
+        return Finding("error", f"pages_fts integrity check failed: {exc}")
+
+
+def iter_all_target_ids(session: "Session", bundles_dir: Path) -> list[str]:
+    """Union of all DB magazine IDs and every subdirectory under bundles_dir."""
+    ids: set[str] = set(session.scalars(select(Magazine.id)))
+    if bundles_dir.exists():
+        ids |= {p.name for p in bundles_dir.iterdir() if p.is_dir()}
+    return sorted(ids)
