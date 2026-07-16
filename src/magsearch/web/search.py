@@ -8,6 +8,31 @@ from sqlalchemy.orm import Session
 
 _SAFE_WORD = re.compile(r"[A-Za-z0-9]+")
 
+_MIN_YEAR = 1000
+_MAX_YEAR = 9999
+
+
+def _parse_year(raw: object) -> int | None:
+    try:
+        year = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if year < _MIN_YEAR or year > _MAX_YEAR:
+        return None
+    return year
+
+
+def coerce_year_range(
+    raw_from: object, raw_to: object
+) -> tuple[int | None, int | None]:
+    """Parse/validate two year inputs. Non-numeric or out-of-range → None.
+    If both are set and from > to, swap them. Never raises."""
+    year_from = _parse_year(raw_from)
+    year_to = _parse_year(raw_to)
+    if year_from is not None and year_to is not None and year_from > year_to:
+        year_from, year_to = year_to, year_from
+    return year_from, year_to
+
 
 def sanitize_query(
     raw: str,

@@ -10,6 +10,7 @@ from magsearch.importer import import_bundle
 from magsearch.ingest.ocr import FakeOCREngine, OCRRegion
 from magsearch.ingest.pipeline import IngestOptions, IngestPipeline
 from magsearch.web.search import (
+    coerce_year_range,
     sanitize_query,
     search,
     search_in_magazine,
@@ -81,6 +82,37 @@ def test_sanitize_query_match_phrase_wraps_everything():
     # Empty / junk inputs stay empty.
     assert sanitize_query("", match_phrase=True) == ""
     assert sanitize_query("!@#", match_phrase=True) == ""
+
+
+def test_coerce_year_range_parses_valid_years():
+    assert coerce_year_range("1980", "1985") == (1980, 1985)
+    assert coerce_year_range(1980, 1985) == (1980, 1985)
+    assert coerce_year_range(" 1980 ", " 1985 ") == (1980, 1985)
+
+
+def test_coerce_year_range_blank_bounds_are_none():
+    assert coerce_year_range("", "") == (None, None)
+    assert coerce_year_range("1980", "") == (1980, None)
+    assert coerce_year_range("", "1985") == (None, 1985)
+    assert coerce_year_range(None, None) == (None, None)
+
+
+def test_coerce_year_range_junk_is_none():
+    assert coerce_year_range("abc", "19x5") == (None, None)
+    assert coerce_year_range("1980.0", "nineteen") == (None, None)
+
+
+def test_coerce_year_range_out_of_range_is_none():
+    assert coerce_year_range("0", "20260") == (None, None)
+    assert coerce_year_range("999", "10000") == (None, None)
+    # Boundaries are inclusive.
+    assert coerce_year_range("1000", "9999") == (1000, 9999)
+
+
+def test_coerce_year_range_swaps_reversed():
+    assert coerce_year_range("1985", "1980") == (1980, 1985)
+    # Only swaps when BOTH are set.
+    assert coerce_year_range("1985", "") == (1985, None)
 
 
 def test_search_returns_stemmed_hits(populated_db):
