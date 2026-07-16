@@ -136,30 +136,62 @@ _GROUPED_ORDER_CLAUSES = {
 }
 
 
-def _build_flat_sql() -> dict[str, "text"]:
-    base = """
-        SELECT
-            magazines.id               AS magazine_id,
-            magazines.title            AS magazine_title,
-            magazines.issue            AS magazine_issue,
-            magazines.publication_date AS magazine_date,
-            pages.page_number          AS page_number,
-            pages.thumb_path           AS thumb_path,
-            snippet(pages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
-        FROM pages_fts
-        JOIN pages     ON pages_fts.rowid = pages.id
-        JOIN magazines ON pages.magazine_id = magazines.id
-        WHERE pages_fts MATCH :q
-          AND (:date_from IS NULL OR magazines.publication_date >= :date_from)
-          AND (:date_to   IS NULL OR magazines.publication_date <= :date_to)
-        ORDER BY {clause}
-        LIMIT :limit OFFSET :offset
-    """
+_FLAT_BASE_SQL = """
+    SELECT
+        magazines.id               AS magazine_id,
+        magazines.title            AS magazine_title,
+        magazines.issue            AS magazine_issue,
+        magazines.publication_date AS magazine_date,
+        pages.page_number          AS page_number,
+        pages.thumb_path           AS thumb_path,
+        snippet(pages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet
+    FROM pages_fts
+    JOIN pages     ON pages_fts.rowid = pages.id
+    JOIN magazines ON pages.magazine_id = magazines.id
+    WHERE pages_fts MATCH :q
+      AND (:date_from IS NULL OR magazines.publication_date >= :date_from)
+      AND (:date_to   IS NULL OR magazines.publication_date <= :date_to)
+      {title_clause}
+    ORDER BY {clause}
+    LIMIT :limit OFFSET :offset
+"""
+
+_GROUPED_BASE_SQL = """
+    SELECT
+        magazines.id               AS magazine_id,
+        magazines.title            AS magazine_title,
+        magazines.issue            AS magazine_issue,
+        magazines.publication_date AS magazine_date,
+        magazines.cover_path       AS cover_path,
+        COUNT(*)                   AS match_count,
+        MIN(pages_fts.rank)        AS best_rank
+    FROM pages_fts
+    JOIN pages     ON pages_fts.rowid = pages.id
+    JOIN magazines ON pages.magazine_id = magazines.id
+    WHERE pages_fts MATCH :q
+      AND (:date_from IS NULL OR magazines.publication_date >= :date_from)
+      AND (:date_to   IS NULL OR magazines.publication_date <= :date_to)
+      {title_clause}
+    GROUP BY magazines.id
+    ORDER BY {clause}
+    LIMIT :limit OFFSET :offset
+"""
+
+_TITLE_CLAUSE = "AND magazines.title IN :titles"
+
+
+def _build_flat_sql(*, title_filter: bool) -> dict[str, "text"]:
+    title_clause = _TITLE_CLAUSE if title_filter else ""
+    params = [
+        bindparam("q"), bindparam("limit"), bindparam("offset"),
+        bindparam("date_from"), bindparam("date_to"),
+    ]
+    if title_filter:
+        params.append(bindparam("titles", expanding=True))
     return {
-        sort: text(base.format(clause=clause)).bindparams(
-            bindparam("q"), bindparam("limit"), bindparam("offset"),
-            bindparam("date_from"), bindparam("date_to"),
-        )
+        sort: text(
+            _FLAT_BASE_SQL.format(clause=clause, title_clause=title_clause)
+        ).bindparams(*params)
         for sort, clause in _FLAT_ORDER_CLAUSES.items()
     }
 
@@ -220,39 +252,28 @@ def _build_per_title_sql() -> dict[str, "text"]:
     }
 
 
-def _build_grouped_sql() -> dict[str, "text"]:
-    base = """
-        SELECT
-            magazines.id               AS magazine_id,
-            magazines.title            AS magazine_title,
-            magazines.issue            AS magazine_issue,
-            magazines.publication_date AS magazine_date,
-            magazines.cover_path       AS cover_path,
-            COUNT(*)                   AS match_count,
-            MIN(pages_fts.rank)        AS best_rank
-        FROM pages_fts
-        JOIN pages     ON pages_fts.rowid = pages.id
-        JOIN magazines ON pages.magazine_id = magazines.id
-        WHERE pages_fts MATCH :q
-          AND (:date_from IS NULL OR magazines.publication_date >= :date_from)
-          AND (:date_to   IS NULL OR magazines.publication_date <= :date_to)
-        GROUP BY magazines.id
-        ORDER BY {clause}
-        LIMIT :limit OFFSET :offset
-    """
+def _build_grouped_sql(*, title_filter: bool) -> dict[str, "text"]:
+    title_clause = _TITLE_CLAUSE if title_filter else ""
+    params = [
+        bindparam("q"), bindparam("limit"), bindparam("offset"),
+        bindparam("date_from"), bindparam("date_to"),
+    ]
+    if title_filter:
+        params.append(bindparam("titles", expanding=True))
     return {
-        sort: text(base.format(clause=clause)).bindparams(
-            bindparam("q"), bindparam("limit"), bindparam("offset"),
-            bindparam("date_from"), bindparam("date_to"),
-        )
+        sort: text(
+            _GROUPED_BASE_SQL.format(clause=clause, title_clause=title_clause)
+        ).bindparams(*params)
         for sort, clause in _GROUPED_ORDER_CLAUSES.items()
     }
 
 
-_FLAT_SQL_BY_SORT = _build_flat_sql()
+_FLAT_SQL_BY_SORT = _build_flat_sql(title_filter=False)
+_FLAT_SQL_TITLE_BY_SORT = _build_flat_sql(title_filter=True)
 _PER_ISSUE_SQL_BY_SORT = _build_per_issue_sql()
 _PER_TITLE_SQL_BY_SORT = _build_per_title_sql()
-_GROUPED_SQL_BY_SORT = _build_grouped_sql()
+_GROUPED_SQL_BY_SORT = _build_grouped_sql(title_filter=False)
+_GROUPED_SQL_TITLE_BY_SORT = _build_grouped_sql(title_filter=True)
 
 
 def _date_bounds(
@@ -298,18 +319,25 @@ def search(
     match_phrase: bool = False,
     year_from: int | None = None,
     year_to: int | None = None,
+    titles: list[str] | None = None,
 ) -> list[SearchResult]:
     q = sanitize_query(raw_query, match_all=match_all, match_phrase=match_phrase)
     if not q:
         return []
+    if titles is not None and len(titles) == 0:
+        return []
     date_from, date_to = _date_bounds(year_from, year_to)
-    stmt = _pick(_FLAT_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)
+    params = {
+        "q": q, "limit": limit, "offset": offset,
+        "date_from": date_from, "date_to": date_to,
+    }
+    if titles is None:
+        stmt = _pick(_FLAT_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)
+    else:
+        stmt = _pick(_FLAT_SQL_TITLE_BY_SORT, sort, DEFAULT_FLAT_SORT)
+        params["titles"] = titles
     try:
-        rows = session.execute(
-            stmt,
-            {"q": q, "limit": limit, "offset": offset,
-             "date_from": date_from, "date_to": date_to},
-        ).all()
+        rows = session.execute(stmt, params).all()
     except Exception:
         return []
     return [_row_to_result(r) for r in rows]
@@ -376,18 +404,25 @@ def search_magazines(
     match_phrase: bool = False,
     year_from: int | None = None,
     year_to: int | None = None,
+    titles: list[str] | None = None,
 ) -> list[MagazineMatch]:
     q = sanitize_query(raw_query, match_all=match_all, match_phrase=match_phrase)
     if not q:
         return []
+    if titles is not None and len(titles) == 0:
+        return []
     date_from, date_to = _date_bounds(year_from, year_to)
-    stmt = _pick(_GROUPED_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)
+    params = {
+        "q": q, "limit": limit, "offset": offset,
+        "date_from": date_from, "date_to": date_to,
+    }
+    if titles is None:
+        stmt = _pick(_GROUPED_SQL_BY_SORT, sort, DEFAULT_FLAT_SORT)
+    else:
+        stmt = _pick(_GROUPED_SQL_TITLE_BY_SORT, sort, DEFAULT_FLAT_SORT)
+        params["titles"] = titles
     try:
-        rows = session.execute(
-            stmt,
-            {"q": q, "limit": limit, "offset": offset,
-             "date_from": date_from, "date_to": date_to},
-        ).all()
+        rows = session.execute(stmt, params).all()
     except Exception:
         return []
     return [

@@ -532,3 +532,43 @@ def test_search_magazines_sort_matches_is_stable_on_total_tie(identical_content_
             s, "synthesizer", offset=0, limit=10, sort="matches",
         )
     assert [g.magazine_id for g in groups] == ["alpha-1985-01", "zebra-1985-01"]
+
+
+def test_search_titles_none_searches_all(dated_corpus_db):
+    with session_scope(dated_corpus_db) as s:
+        results = search(s, "synthesizer", offset=0, limit=10, titles=None)
+    assert _titles(results) == {"Byte", "Compute", "Retro"}
+
+
+def test_search_titles_single(dated_corpus_db):
+    with session_scope(dated_corpus_db) as s:
+        results = search(s, "synthesizer", offset=0, limit=10, titles=["Byte"])
+    assert _titles(results) == {"Byte"}
+
+
+def test_search_titles_subset(dated_corpus_db):
+    with session_scope(dated_corpus_db) as s:
+        results = search(s, "synthesizer", offset=0, limit=10,
+                         titles=["Byte", "Compute"])
+    assert _titles(results) == {"Byte", "Compute"}
+
+
+def test_search_titles_empty_returns_nothing(dated_corpus_db):
+    with session_scope(dated_corpus_db) as s:
+        results = search(s, "synthesizer", offset=0, limit=10, titles=[])
+    assert results == []
+
+
+def test_search_magazines_titles_subset(dated_corpus_db):
+    with session_scope(dated_corpus_db) as s:
+        hits = search_magazines(s, "synthesizer", offset=0, limit=10,
+                                titles=["Byte"])
+    assert {h.magazine_title for h in hits} == {"Byte"}
+
+
+def test_search_titles_combines_with_year(dated_corpus_db):
+    # Byte(1985) + Compute(1984) selected, but year_from=1985 drops Compute.
+    with session_scope(dated_corpus_db) as s:
+        results = search(s, "synthesizer", offset=0, limit=10,
+                         titles=["Byte", "Compute"], year_from=1985)
+    assert _titles(results) == {"Byte"}
