@@ -70,19 +70,23 @@ def check_bundle(
         return BundleReport(magazine_id, title, issue, page_count, findings)
 
     # --- file presence ---
+    missing_paths: set[str] = set()
     image_files: list[tuple[int | None, str]] = []  # (page or None, rel path) to decode
     for entry in manifest.pages:
         for rel in (entry.image_path, entry.thumb_path, entry.ocr_path):
             if not (bundle_dir / rel).exists():
                 findings.append(Finding("error", "missing", page=entry.page_number, path=rel))
+                missing_paths.add(rel)
         image_files.append((entry.page_number, entry.image_path))
         image_files.append((entry.page_number, entry.thumb_path))
     original_rel = f"original.{manifest.original_format}"
     if not (bundle_dir / original_rel).exists():
         findings.append(Finding("error", "missing", path=original_rel))
+        missing_paths.add(original_rel)
     if manifest.cover_path:
         if not (bundle_dir / manifest.cover_path).exists():
             findings.append(Finding("error", "missing", path=manifest.cover_path))
+            missing_paths.add(manifest.cover_path)
         else:
             image_files.append((None, manifest.cover_path))
 
@@ -107,8 +111,8 @@ def check_bundle(
         for c in manifest.checksums:
             p = bundle_dir / c.path
             if not p.exists():
-                # Presence for page/original/cover files is covered above; guard others.
-                findings.append(Finding("error", "missing", path=c.path))
+                if c.path not in missing_paths:
+                    findings.append(Finding("error", "missing", path=c.path))
                 continue
             if content_hash(p) != c.sha256:
                 findings.append(Finding("error", "checksum mismatch", path=c.path))
@@ -131,6 +135,10 @@ def check_bundle(
             regions = data
         elif isinstance(data, dict) and "regions" in data:
             regions = data["regions"]
+            if not isinstance(regions, list):
+                findings.append(Finding("error", "unrecognized OCR JSON shape",
+                                        page=entry.page_number, path=entry.ocr_path))
+                continue
             w, h = data.get("width"), data.get("height")
             if isinstance(w, (int, float)) and isinstance(h, (int, float)):
                 width, height = float(w), float(h)

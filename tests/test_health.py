@@ -182,3 +182,22 @@ def test_escaped_text_is_not_drift(tmp_path):
     bundle, _, mag, pages = _stage(tmp_path, text="A & B <tag>")
     report = check_bundle(bundle, "mag-1", mag, pages)
     assert not any("DB text differs" in f.message for f in report.findings), _msgs(report)
+
+
+def test_missing_file_not_double_reported_with_checksums(tmp_path):
+    bundle, _, mag, pages = _stage(tmp_path)
+    (bundle / "pages" / "0001.webp").unlink()
+    report = check_bundle(bundle, "mag-1", mag, pages, verify_checksums=True)
+    missing = [f for f in report.findings
+               if f.message == "missing" and f.path == "pages/0001.webp"]
+    assert len(missing) == 1, [(x.message, x.page, x.path) for x in report.findings]
+
+
+def test_non_list_regions_is_error(tmp_path):
+    bundle, _, mag, pages = _stage(tmp_path)
+    (bundle / "ocr" / "0001.json").write_text(
+        json.dumps({"width": 20, "height": 26, "regions": "oops"})
+    )
+    report = check_bundle(bundle, "mag-1", mag, pages)
+    assert any(f.level == "error" and "OCR JSON shape" in f.message
+               for f in report.findings)
