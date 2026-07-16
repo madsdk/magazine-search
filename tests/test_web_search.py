@@ -447,3 +447,40 @@ def test_search_route_flat_rejects_matches_sort(app_client):
     # and inactive options as anchor tags. A literal "<span>matches</span>"
     # would mean the bogus sort survived validation.
     assert "<span>matches</span>" not in resp.text
+
+
+def test_search_scope_custom_single_title(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "mag_scope": "custom", "mag": "Byte",
+    })
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12" in resp.text
+    assert "/magazine/compute-1984-06" not in resp.text
+
+
+def test_search_scope_default_searches_all(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={"q": "synthesizer"})
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12" in resp.text
+    assert "/magazine/compute-1984-06" in resp.text
+
+
+def test_search_scope_custom_empty_returns_no_results(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={"q": "synthesizer", "mag_scope": "custom"})
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12" not in resp.text
+    assert "/magazine/compute-1984-06" not in resp.text
+
+
+def test_search_scope_unknown_title_does_not_500(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "mag_scope": "custom", "mag": "Nonexistent",
+    })
+    # Unknown title dropped → empty effective selection → no results, no crash.
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12" not in resp.text
+    assert "/magazine/compute-1984-06" not in resp.text

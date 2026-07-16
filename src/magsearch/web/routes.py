@@ -90,6 +90,8 @@ def search_route(
     match_phrase: int = Query(default=0),
     year_from: str = Query(default=""),
     year_to: str = Query(default=""),
+    mag_scope: str = Query(default=""),
+    mag: list[str] = Query(default=[]),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     if view not in ("grouped", "flat"):
@@ -103,6 +105,18 @@ def search_route(
     # so the rendered checkbox state never contradicts the search behavior.
     match_all_b = bool(match_all) or match_phrase_b
     year_from_i, year_to_i = coerce_year_range(year_from, year_to)
+    all_titles = list(
+        db.scalars(select(Magazine.title).distinct().order_by(Magazine.title)).all()
+    )
+    if mag_scope == "custom":
+        title_set = set(all_titles)
+        selected_titles = [t for t in mag if t in title_set]
+        search_titles: list[str] | None = selected_titles
+        mag_scope_norm = "custom"
+    else:
+        selected_titles = all_titles
+        search_titles = None
+        mag_scope_norm = ""
     result_cap = FLAT_RESULT_CAP if view == "flat" else GROUPED_RESULT_CAP
     page, max_page = _clamp_page(page, result_cap, per_page)
 
@@ -112,12 +126,14 @@ def search_route(
             db, q, offset=offset, limit=per_page + 1, sort=sort,
             match_all=match_all_b, match_phrase=match_phrase_b,
             year_from=year_from_i, year_to=year_to_i,
+            titles=search_titles,
         )
     else:
         results = search_magazines(
             db, q, offset=offset, limit=per_page + 1, sort=sort,
             match_all=match_all_b, match_phrase=match_phrase_b,
             year_from=year_from_i, year_to=year_to_i,
+            titles=search_titles,
         )
     has_more = len(results) > per_page and page < max_page
     results = results[:per_page]
@@ -141,6 +157,9 @@ def search_route(
             "match_phrase": match_phrase_b,
             "year_from": year_from_i,
             "year_to": year_to_i,
+            "all_titles": all_titles,
+            "mag_scope": mag_scope_norm,
+            "selected_titles": set(selected_titles),
         },
     )
 
