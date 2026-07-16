@@ -19,7 +19,7 @@ from magsearch.importer import (
     import_bundle,
     resolve_magazines,
 )
-from magsearch.models import Magazine, User
+from magsearch.models import User
 from magsearch.settings import get_settings
 from magsearch.web.auth import hash_password, normalize_username
 
