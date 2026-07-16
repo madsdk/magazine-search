@@ -383,12 +383,14 @@ def test_search_route_grouped_accepts_matches_sort(app_client):
 def test_search_year_filter_narrows_results(app_client):
     client, _ = app_client
     # Flat view, restrict to 1985 → Byte only, Compute (1984) excluded.
+    # (Both titles still appear as checkboxes in the magazine-scope panel,
+    # so we check the actual result link rather than the bare title text.)
     resp = client.get("/search", params={
         "q": "synthesizer", "view": "flat", "year_from": "1985",
     })
     assert resp.status_code == 200
-    assert "Byte" in resp.text
-    assert "Compute" not in resp.text
+    assert "/magazine/byte-1985-12" in resp.text
+    assert "/magazine/compute-1984-06" not in resp.text
 
 
 def test_search_year_to_filters_out_newer(app_client):
@@ -397,8 +399,8 @@ def test_search_year_to_filters_out_newer(app_client):
         "q": "synthesizer", "view": "flat", "year_to": "1984",
     })
     assert resp.status_code == 200
-    assert "Compute" in resp.text
-    assert "Byte" not in resp.text
+    assert "/magazine/compute-1984-06" in resp.text
+    assert "/magazine/byte-1985-12" not in resp.text
 
 
 def test_search_bad_year_does_not_500(app_client):
@@ -447,3 +449,103 @@ def test_search_route_flat_rejects_matches_sort(app_client):
     # and inactive options as anchor tags. A literal "<span>matches</span>"
     # would mean the bogus sort survived validation.
     assert "<span>matches</span>" not in resp.text
+
+
+def test_search_scope_custom_single_title(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "mag_scope": "custom", "mag": "Byte",
+    })
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12" in resp.text
+    assert "/magazine/compute-1984-06" not in resp.text
+
+
+def test_search_scope_default_searches_all(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={"q": "synthesizer"})
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12" in resp.text
+    assert "/magazine/compute-1984-06" in resp.text
+
+
+def test_search_scope_custom_empty_returns_no_results(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={"q": "synthesizer", "mag_scope": "custom"})
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12" not in resp.text
+    assert "/magazine/compute-1984-06" not in resp.text
+
+
+def test_search_scope_unknown_title_does_not_500(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "mag_scope": "custom", "mag": "Nonexistent",
+    })
+    # Unknown title dropped → empty effective selection → no results, no crash.
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12" not in resp.text
+    assert "/magazine/compute-1984-06" not in resp.text
+
+
+def test_search_panel_lists_all_titles_checked_by_default(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={"q": "synthesizer"})
+    assert resp.status_code == 200
+    assert "limit to magazines" in resp.text
+    assert 'value="Byte"' in resp.text
+    assert 'value="Compute"' in resp.text
+    # Default: every box checked.
+    import re
+    assert re.search(r'value="Byte"[^>]*\bchecked', resp.text)
+    assert re.search(r'value="Compute"[^>]*\bchecked', resp.text)
+
+
+def test_search_panel_reflects_custom_selection(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "mag_scope": "custom", "mag": "Byte",
+    })
+    assert resp.status_code == 200
+    import re
+    # Byte checked, Compute not.
+    assert re.search(r'value="Byte"[^>]*\bchecked', resp.text)
+    assert not re.search(r'value="Compute"[^>]*\bchecked', resp.text)
+    # Panel is open and shows the count.
+    assert re.search(r"<details[^>]*\bopen", resp.text)
+    assert "1 of 2" in resp.text
+
+
+def test_search_scope_persists_across_view_toggle(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "mag_scope": "custom", "mag": "Byte",
+    })
+    assert resp.status_code == 200
+    # The grouped→flat toggle link carries the selection.
+    assert "mag_scope=custom" in resp.text
+    assert "mag=Byte" in resp.text
+
+
+def test_search_scope_custom_flat_view(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "view": "flat", "mag_scope": "custom", "mag": "Byte",
+    })
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12" in resp.text
+    assert "/magazine/compute-1984-06" not in resp.text
+
+
+def test_search_default_scope_omits_mag_params_in_links(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={"q": "synthesizer"})
+    assert resp.status_code == 200
+    # Default (all titles selected) → generated nav links carry no scope marker.
+    # Check the anchor hrefs specifically: a bare page-wide substring check
+    # would false-match the "mag_scope=custom" text in the inlined base.html
+    # submit-handler JS comment, not an actual link.
+    import re
+    hrefs = re.findall(r'href="([^"]*)"', resp.text)
+    assert not any("mag_scope" in h for h in hrefs), "default links must not carry a scope marker"
+    assert not any("mag=" in h for h in hrefs), "default links must not carry mag params"
