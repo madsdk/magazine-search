@@ -95,3 +95,14 @@ def test_unknown_id_exits_one(tmp_path, monkeypatch):
     r = runner.invoke(app, ["check", "does-not-exist"])
     assert r.exit_code == 1, r.stdout
     assert "does-not-exist" in r.stdout
+
+
+def test_corrupt_database_exits_two(tmp_path, monkeypatch):
+    bundles = _env(tmp_path, monkeypatch)  # creates and upgrades a real DB
+    # Overwrite the SQLite file with non-DB bytes so any query raises DatabaseError.
+    (tmp_path / "test.db").write_bytes(b"this is definitely not a sqlite database file")
+    r = runner.invoke(app, ["check"])
+    assert r.exit_code == 2, r.output
+    assert "database error" in r.output.lower()
+    # The reorder means the FTS check never runs on a dead DB, so no misleading line:
+    assert "integrity check failed" not in r.output

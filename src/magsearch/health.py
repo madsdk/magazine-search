@@ -159,6 +159,8 @@ def check_bundle(
                 if not (isinstance(bbox, list) and len(bbox) == 4):
                     continue
                 x0, y0, x1, y1 = bbox
+                if not all(isinstance(v, (int, float)) for v in bbox):
+                    continue
                 if (x0 < -width * tol or y0 < -height * tol
                         or x1 > width * (1 + tol) or y1 > height * (1 + tol)):
                     oob += 1

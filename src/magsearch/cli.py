@@ -10,7 +10,7 @@ from alembic import command
 from alembic.config import Config
 from PIL import Image
 from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DatabaseError
 
 from magsearch.bulk_import import bulk_import
 from magsearch.db import make_engine, make_session_factory, session_scope
@@ -376,12 +376,6 @@ def check_cmd(
 
     try:
         with session_scope(factory) as s:
-            fts = check_fts_integrity(s)
-            if fts is not None:
-                typer.echo(f"ERROR  {fts.message}")
-                any_error = True
-                total_errors += 1
-
             if ids or title:
                 targets = resolve_magazines(s, ids, title)
                 for missing in targets.not_found:
@@ -397,6 +391,12 @@ def check_cmd(
                 if not target_ids:
                     typer.echo("no bundles found", err=True)
                     raise typer.Exit(code=1)
+
+            fts = check_fts_integrity(s)
+            if fts is not None:
+                typer.echo(f"ERROR  {fts.message}")
+                any_error = True
+                total_errors += 1
 
             for mid in target_ids:
                 mag_row = s.get(Magazine, mid)
@@ -416,7 +416,7 @@ def check_cmd(
                     any_warning = True
                 else:
                     clean += 1
-    except OperationalError as exc:
+    except DatabaseError as exc:
         typer.echo(f"database error: {exc}", err=True)
         raise typer.Exit(code=2) from exc
 
