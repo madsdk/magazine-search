@@ -403,6 +403,39 @@
         });
       });
   });
+
+  // Magazine-scope panel: check-all / check-none buttons.
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    if (!t.matches || !t.matches("[data-mag-all], [data-mag-none]")) return;
+    var form = t.closest("form");
+    if (!form) return;
+    var on = t.matches("[data-mag-all]");
+    form
+      .querySelectorAll('input[type="checkbox"][name="mag"]')
+      .forEach(function (b) { b.checked = on; });
+    e.preventDefault();
+  });
+
+  // Magazine-scope: normalize the selection on submit.
+  //   all checked  -> disable mag_scope + all mag boxes  (clean default URL)
+  //   otherwise    -> mag_scope=custom; only checked mag boxes serialize
+  //                   (none checked -> just mag_scope=custom -> no results)
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (!form || form.tagName !== "FORM") return;
+    var boxes = form.querySelectorAll('input[type="checkbox"][name="mag"]');
+    if (!boxes.length) return;
+    var scope = form.querySelector('input[type="hidden"][name="mag_scope"]');
+    var allChecked = true;
+    boxes.forEach(function (b) { if (!b.checked) allChecked = false; });
+    if (allChecked) {
+      if (scope) scope.disabled = true;
+      boxes.forEach(function (b) { b.disabled = true; });
+    } else if (scope) {
+      scope.value = "custom";
+    }
+  }, true);
 </script>
 
 </body>
