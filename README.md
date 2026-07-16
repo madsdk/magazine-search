@@ -334,6 +334,32 @@ Prints a summary and asks for confirmation; `--yes`/`-y` skips the prompt for
 non-interactive use (e.g. `docker exec magsearch magsearch delete … --yes`).
 Deletion is permanent; re-run `magsearch import` on the bundle to restore.
 
+## Checking bundle health
+
+Audit bundles for the damage a bad ingestion can leave behind — missing page
+images/thumbnails/OCR, corrupt files, empty or misaligned OCR, and drift
+between the database and the on-disk bundle:
+
+```bash
+magsearch check <magazine_id>            # one bundle
+magsearch check --title "Computer Gaming World"
+magsearch check                          # audit every bundle
+```
+
+For each bundle it prints `OK` or the specific problems found, then a summary,
+and exits non-zero if any bundle has an error.
+
+Options:
+
+- `--checksums` — also recompute every file's SHA-256 and compare it to the
+  manifest. The strongest corruption check, but it reads every byte, so it is
+  off by default.
+- `--strict` — treat warnings (e.g. legacy-format OCR that `magsearch
+  ocr-rescale` would fix, empty-text pages) as failures for the exit code.
+
+`check` only reports; it never modifies bundles. Fix misaligned highlights with
+`magsearch ocr-rescale`, and re-ingest to recover missing pages or empty OCR.
+
 ## Deploying the web app with Docker
 
 The repo ships a `Dockerfile` for the server side (no GPU, no PaddleOCR).
