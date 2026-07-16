@@ -15,7 +15,7 @@ from magsearch.ingest.bulk import (
     load_sidecar,
     scan_inputs,
 )
-from magsearch.ingest.ocr import FakeOCREngine, OCRRegion
+from magsearch.ingest.ocr import FakeOCREngine, FatalOCRError, OCRRegion
 from tests.fixtures.pdfs import make_pdf
 
 runner = CliRunner()
@@ -286,6 +286,48 @@ def test_bulk_ingest_continues_past_failure(tmp_path):
     assert result.failed == 1
     # The good file still landed in bundles.
     assert (bundles / "good-1985-01" / "manifest.json").exists()
+
+
+def test_bulk_ingest_aborts_whole_run_on_fatal_ocr_error(tmp_path):
+    """A fatal OCR error must stop the entire batch (CUDA is dead process-wide),
+    not merely fail one file and press on — otherwise every later file is
+    silently ingested with empty text."""
+    src = tmp_path / "in"
+    _make_collection(src, [("a.pdf", 1), ("b.pdf", 1), ("c.pdf", 1)])
+    (src / "metadata.csv").write_text(
+        "filename,title,date\n"
+        "a.pdf,A,1985-01-01\n"
+        "b.pdf,B,1985-02-01\n"
+        "c.pdf,C,1985-03-01\n"
+    )
+    bundles = tmp_path / "out"
+    # a.pdf OCRs fine (1 page); b.pdf's only page hits a fatal GPU fault.
+    engine = FakeOCREngine(responses=[
+        [OCRRegion(text="ok", bbox=(0, 0, 100, 20), confidence=1.0)],
+        FatalOCRError("unrecoverable GPU error during OCR: CUDA error(700)"),
+    ])
+
+    warnings: list[str] = []
+    result = bulk_ingest(
+        input_dir=src, sidecar_path=None, state_path=None,
+        bundles_dir=bundles, ocr_engine=engine,
+        on_warning=warnings.append,
+    )
+
+    assert result.aborted is True
+    assert result.succeeded == 1          # a.pdf
+    assert result.failed == 1             # b.pdf
+    # c.pdf was never attempted — the run stopped at the fatal error.
+    assert (bundles / "a-1985-01" / "manifest.json").exists()
+    assert not (bundles / "b-1985-02" / "manifest.json").exists()
+    assert not (bundles / "c-1985-03" / "manifest.json").exists()
+    assert any("abort" in w.lower() for w in warnings)
+
+    # State reflects reality: b failed, c is still pending (untouched).
+    state = StateLog(src / ".bulk-state.jsonl")
+    assert state.get("a.pdf").status == DONE
+    assert state.get("b.pdf").status == FAILED
+    assert state.get("c.pdf").status not in (DONE, FAILED)
 
 
 # ---- CLI smoke test ------------------------------------------------------

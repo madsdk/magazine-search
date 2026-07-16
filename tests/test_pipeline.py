@@ -4,7 +4,9 @@ from pathlib import Path
 
 from PIL import Image
 
-from magsearch.ingest.ocr import FakeOCREngine, OCRRegion
+import pytest
+
+from magsearch.ingest.ocr import FakeOCREngine, FatalOCRError, OCRRegion
 from magsearch.ingest.pipeline import IngestPipeline, IngestOptions
 from magsearch.manifest import Manifest
 from tests.fixtures.pdfs import make_pdf
@@ -117,6 +119,30 @@ def test_pipeline_ocr_json_is_dict_with_rescaled_bboxes(tmp_path: Path):
     # Resulting bbox stays inside the displayed-image coordinate space.
     assert 0 <= rx0 < rx1 <= disp_w
     assert 0 <= ry0 < ry1 <= disp_h
+
+
+def test_pipeline_aborts_without_manifest_on_fatal_ocr_error(tmp_path: Path):
+    """A fatal OCR error mid-document must propagate (not be swallowed as empty
+    text) and leave the bundle without a manifest, so it can't be mistaken for a
+    complete one."""
+    src = make_pdf(tmp_path / "byte.pdf", num_pages=3, page_text=["a", "b", "c"])
+    bundles = tmp_path / "bundles"
+    # Page 1 OCRs fine; page 2 hits an unrecoverable GPU fault.
+    engine = FakeOCREngine(responses=[
+        [OCRRegion(text="page 1", bbox=(0, 0, 100, 20), confidence=1.0)],
+        FatalOCRError("unrecoverable GPU error during OCR: CUDA error(700)"),
+    ])
+
+    with pytest.raises(FatalOCRError):
+        IngestPipeline(
+            bundles, engine,
+            IngestOptions(title="Byte", publication_date=date(1985, 12, 1)),
+        ).run(src)
+
+    # No manifest was written — the half-finished bundle is visibly incomplete
+    # rather than a DONE bundle full of empty text.
+    bundle = bundles / "byte-1985-12"
+    assert not (bundle / "manifest.json").exists()
 
 
 def test_pipeline_is_idempotent_without_force(tmp_path: Path):

@@ -224,6 +224,14 @@ def bulk_ingest_cmd(
         f"bulk-ingest: {result.succeeded} done, {result.failed} failed, "
         f"{result.skipped} skipped — state at {result.state_file}",
     )
+    if result.aborted:
+        typer.echo(
+            "bulk-ingest ABORTED on an unrecoverable OCR error — remaining "
+            "files were not processed. Restart the process and re-run with "
+            "--retry-failed to resume.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     if result.failed and not halt_on_error:
         raise typer.Exit(code=1)
 

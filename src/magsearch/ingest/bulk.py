@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from magsearch.ingest.ocr import OCREngine
+from magsearch.ingest.ocr import FatalOCRError, OCREngine
 from magsearch.ingest.pipeline import IngestOptions, IngestPipeline, IngestResult
 
 _INGESTIBLE_SUFFIXES = {".pdf", ".cbz", ".cbr"}
@@ -195,6 +195,10 @@ class BulkIngestResult:
     skipped: int
     state_file: Path
     bundles: list[Path] = field(default_factory=list)
+    # True when the run stopped early on an unrecoverable OCR error (e.g. a
+    # fatal GPU fault) rather than running to completion. Remaining files are
+    # left untouched — restart the process and re-run with retry_failed.
+    aborted: bool = False
 
 
 @dataclass
@@ -308,6 +312,7 @@ def bulk_ingest(
 
     bundles: list[Path] = []
     succeeded = failed = 0
+    aborted = False
     total = len(to_process) + len(to_skip)
 
     # Replay the skipped files so callers can render them in order.
@@ -341,6 +346,33 @@ def bulk_ingest(
             entry.error = None
             succeeded += 1
             bundles.append(result.bundle_dir)
+        except FatalOCRError as exc:
+            # The OCR engine's state is corrupt for the rest of this process, so
+            # every remaining file would fail the same way (or worse, silently
+            # produce empty-text bundles). Record this file as failed and stop
+            # the whole run regardless of halt_on_error — the operator must
+            # restart the process and re-run with retry_failed to resume.
+            entry.status = FAILED
+            entry.error = f"{type(exc).__name__}: {exc}"
+            failed += 1
+            aborted = True
+            _LOG.error(
+                "fatal OCR error on %s — aborting bulk run; the OCR engine "
+                "cannot recover in-process. Restart and re-run with "
+                "retry_failed to resume. Cause: %s",
+                plan.path, exc,
+            )
+            msg = (
+                f"fatal OCR error on {key} — aborting run. The OCR engine "
+                "cannot recover in-process (a GPU fault leaves the process in "
+                "an inconsistent state). Restart and re-run with --retry-failed "
+                "to resume from here; no further files were processed."
+            )
+            on_warning(msg)
+            entry.finished_at = _now_iso()
+            state.save()
+            on_file_end(idx, total, plan.path, entry)
+            break
         except Exception as exc:  # noqa: BLE001 — bulk runs need to record any failure
             entry.status = FAILED
             entry.error = f"{type(exc).__name__}: {exc}"
@@ -363,6 +395,7 @@ def bulk_ingest(
         skipped=len(to_skip),
         state_file=state_path,
         bundles=bundles,
+        aborted=aborted,
     )
 
 

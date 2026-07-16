@@ -11,7 +11,12 @@ from PIL import Image
 from magsearch.ingest.formats import detect_format, page_count, read_pages
 from magsearch.ingest.ids import content_hash, generate_id, resolve_unique_id
 from magsearch.ingest.normalize import encode_page, encode_thumb, write_cover
-from magsearch.ingest.ocr import OCREngine, OCRRegion, concatenate_reading_order
+from magsearch.ingest.ocr import (
+    FatalOCRError,
+    OCREngine,
+    OCRRegion,
+    concatenate_reading_order,
+)
 from magsearch.manifest import FileChecksum, Manifest, PageEntry
 
 
@@ -98,6 +103,13 @@ class IngestPipeline:
 
             try:
                 regions: list[OCRRegion] = self.engine.recognize(image)
+            except FatalOCRError:
+                # Unrecoverable (e.g. CUDA context corruption): every later page
+                # would silently OCR to empty text, yielding a bundle that looks
+                # complete but isn't. Abort before the manifest is written so this
+                # bundle is left without one — visibly incomplete rather than
+                # silently wrong — and let the caller halt the run.
+                raise
             except Exception as exc:
                 logging.getLogger(__name__).warning(
                     "OCR failed on page %d of %s: %s — recording empty text",

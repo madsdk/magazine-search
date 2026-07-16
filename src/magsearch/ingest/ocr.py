@@ -16,6 +16,41 @@ class OCRRegion:
     confidence: float
 
 
+class FatalOCRError(RuntimeError):
+    """An OCR failure that has corrupted process-wide state and cannot be
+    recovered from in-process.
+
+    The canonical case is a CUDA illegal-memory-access (cudaErrorIllegalAddress,
+    error 700): once the GPU context is in this state every *subsequent* CUDA
+    call returns the same error, so continuing to OCR just yields empty text for
+    the rest of the run. CUDA's own guidance is that the process must be
+    terminated and relaunched. Unlike an ordinary per-page OCR failure this must
+    NOT be swallowed — callers should abort and let the operator restart the
+    process, otherwise a whole batch of bundles is silently produced with no
+    text and no way to tell them apart from good ones.
+    """
+
+
+# Substrings that mark a GPU failure as sticky/unrecoverable: the CUDA context
+# is corrupt and every later call raises the same thing. Matched case-
+# insensitively against the exception text. Deliberately excludes plain
+# out-of-memory ("Out of memory" / cudaErrorMemoryAllocation), which is often
+# per-image recoverable — a smaller following page can still succeed.
+_UNRECOVERABLE_GPU_SIGNATURES = (
+    "must be terminated and relaunched",
+    "illegal memory access",
+    "cudaerrorillegaladdress",
+    "misaligned address",
+    "cudaerrorlaunchfailure",
+    "an illegal instruction was encountered",
+)
+
+
+def _is_unrecoverable_gpu_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return any(sig in text for sig in _UNRECOVERABLE_GPU_SIGNATURES)
+
+
 class OCREngine(Protocol):
     name: str
     version: str
@@ -29,7 +64,9 @@ class FakeOCREngine:
     name: str = "fake"
     version: str = "0.0.1"
 
-    def __init__(self, responses: list[list[OCRRegion]] | None = None) -> None:
+    def __init__(
+        self, responses: list[list[OCRRegion] | BaseException] | None = None
+    ) -> None:
         self._responses = list(responses or [])
         self._index = 0
         self._default = [OCRRegion(text="fake page", bbox=(0, 0, 100, 20), confidence=1.0)]
@@ -38,6 +75,10 @@ class FakeOCREngine:
         if self._index < len(self._responses):
             r = self._responses[self._index]
             self._index += 1
+            # A scripted exception is raised, letting tests exercise the
+            # failure paths (e.g. a fatal GPU crash mid-run).
+            if isinstance(r, BaseException):
+                raise r
             return r
         return self._default
 
@@ -162,6 +203,10 @@ class PaddleOCREngine:
         import os
         os.environ.setdefault("FLAGS_enable_pir_in_executor", "0")
 
+        # Set once a fatal GPU error has poisoned the context; every later
+        # recognize() then fails fast instead of re-triggering the same crash.
+        self._dead = False
+
         with _silence_paddle_chatter(enabled=not verbose):
             PaddleOCR = _try_import_paddleocr()
             import paddle  # type: ignore
@@ -208,8 +253,23 @@ class PaddleOCREngine:
 
     def recognize(self, image):
         import numpy as np  # type: ignore
+        if self._dead:
+            raise FatalOCRError(
+                "OCR engine is unusable after a fatal GPU error earlier in this "
+                "run — the process must be restarted before OCR can continue"
+            )
         arr = np.array(image.convert("RGB"))
-        results = self._impl.predict(arr)
+        try:
+            results = self._impl.predict(arr)
+        except Exception as exc:
+            # A sticky CUDA fault (illegal address, launch failure, …) corrupts
+            # the context for the rest of the process: mark the engine dead and
+            # surface a distinct error so callers abort instead of silently
+            # OCR-ing every remaining page to empty text.
+            if _is_unrecoverable_gpu_error(exc):
+                self._dead = True
+                raise FatalOCRError(f"unrecoverable GPU error during OCR: {exc}") from exc
+            raise
         regions: list[OCRRegion] = []
         if not results:
             return regions
