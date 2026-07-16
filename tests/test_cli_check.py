@@ -98,7 +98,7 @@ def test_unknown_id_exits_one(tmp_path, monkeypatch):
 
 
 def test_corrupt_database_exits_two(tmp_path, monkeypatch):
-    bundles = _env(tmp_path, monkeypatch)  # creates and upgrades a real DB
+    _env(tmp_path, monkeypatch)  # creates and upgrades a real DB
     # Overwrite the SQLite file with non-DB bytes so any query raises DatabaseError.
     (tmp_path / "test.db").write_bytes(b"this is definitely not a sqlite database file")
     r = runner.invoke(app, ["check"])
