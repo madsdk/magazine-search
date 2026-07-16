@@ -525,3 +525,27 @@ def test_search_scope_persists_across_view_toggle(app_client):
     # The grouped→flat toggle link carries the selection.
     assert "mag_scope=custom" in resp.text
     assert "mag=Byte" in resp.text
+
+
+def test_search_scope_custom_flat_view(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={
+        "q": "synthesizer", "view": "flat", "mag_scope": "custom", "mag": "Byte",
+    })
+    assert resp.status_code == 200
+    assert "/magazine/byte-1985-12" in resp.text
+    assert "/magazine/compute-1984-06" not in resp.text
+
+
+def test_search_default_scope_omits_mag_params_in_links(app_client):
+    client, _ = app_client
+    resp = client.get("/search", params={"q": "synthesizer"})
+    assert resp.status_code == 200
+    # Default (all titles selected) → generated nav links carry no scope marker.
+    # Check the anchor hrefs specifically: a bare page-wide substring check
+    # would false-match the "mag_scope=custom" text in the inlined base.html
+    # submit-handler JS comment, not an actual link.
+    import re
+    hrefs = re.findall(r'href="([^"]*)"', resp.text)
+    assert not any("mag_scope" in h for h in hrefs), "default links must not carry a scope marker"
+    assert not any("mag=" in h for h in hrefs), "default links must not carry mag params"
