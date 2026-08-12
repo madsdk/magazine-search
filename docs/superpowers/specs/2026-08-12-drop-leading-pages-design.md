@@ -257,7 +257,7 @@ and the bundle is reported as skipped. Committing after the swap keeps the windo
 in which disk and DB disagree down to the commit itself. Should the process die
 in that window, the result is a repaired bundle with a stale DB — which
 `magsearch check` reports as a `page_count` mismatch (`health.py:178-180`), and
-and which re-running the command refuses — see the guard below.
+which re-running the command refuses — see the guard below.
 
 ## Idempotence guard
 
@@ -383,3 +383,31 @@ Repacking the archive without the junk page was considered and rejected for now:
 `rarfile` can only extract, so it would mean rewriting each CBR as a CBZ, which
 changes `content_hash`, `original_format` and `original_filename` — a much larger
 change to the bundle's provenance than the defect warrants.
+
+## Known follow-ups
+
+Reviewed, judged non-blocking, and left deliberately. Recorded here so they are
+not rediscovered as unknowns.
+
+1. **The idempotence guard is inert on a base install.** Counting the archive's
+   pages needs `magsearch.ingest.formats`, which lives in the optional
+   `[ingest]` extra. When that import fails the command warns and proceeds, so
+   on an install without the extra a second repair would again drop the real
+   cover, at exit 0. Accepted because the deployment image installs `.[ingest]`
+   (`Dockerfile:23`), so the guard is live everywhere it matters. Two cheap
+   improvements if this is ever revisited: give the `ImportError` case its own
+   message — the current one blames the archive for what is a tooling gap — and
+   consider a non-zero exit so a script can tell an unverified run from a
+   verified one.
+2. **The guard compares `manifest.page_count`, not `len(manifest.pages)`.**
+   This mirrors `ocr_rescale_cmd`, but `len(manifest.pages)` is strictly better
+   here: `plan_drop` has already proved the pages are exactly `1..N`, so a
+   length can never be stale, while a hand-edited `page_count` field can be —
+   and would cause a pristine bundle to be refused as already-repaired.
+   Fail-safe either way (`--force` is the escape), so it stands as a one-line
+   follow-up rather than a fix.
+3. **`ocr-rescale` exit codes shifted slightly.** Moving the archive-opening
+   page count below the "already in new format" short-circuit means a fully
+   migrated bundle with an unreadable manifest or archive is now counted as
+   skipped rather than failed, so a run can exit 0 where it previously exited 1.
+   No rescaling happens in either case, so there is no correctness risk.
