@@ -241,6 +241,32 @@ different `id` and re-bundle. There is no force-replace path in the importer;
 operators wanting to replace a magazine in place should delete it via the
 admin UI first.
 
+## Repairing an imported bundle
+
+`import_bundle` has no force-replace path, but a bundle whose leading pages are
+junk (a scan-credits sheet ahead of the cover, common in CBR archives) can be
+repaired in place with `magsearch drop-leading-pages`. The command is the only
+supported mutation of an imported bundle. It:
+
+- deletes the dropped pages' `image_path`, `thumb_path` and `ocr_path` files,
+- renumbers every surviving page down by the drop count, rewriting each file's
+  `NNNN` stem while keeping its directory and suffix,
+- rebuilds `cover.webp` from the new first thumbnail,
+- rewrites `page_count`, `pages`, `cover_path` and `checksums`,
+- leaves `id`, `content_hash`, `original_filename` and `original_format`
+  untouched, and carries every other file in the bundle over unchanged at its
+  original relative path — `original.<fmt>` plus any producer-added extras
+  (operator notes, an alternate archive copy, and so on) all survive a repair.
+
+It refuses to touch a bundle whose checksums do not already verify, whose page
+numbers are not exactly `1..N`, or where the drop would leave zero pages.
+
+**Consequence for producers and tools:** after a repair, bundle page `N` is
+archive page `N + count`. Any tool that pairs a bundle's pages with its
+`original.<fmt>` positionally must first check `manifest.page_count` against
+the archive's own page count and refuse when they differ —
+`magsearch ocr-rescale` does exactly this.
+
 ## What ends up in the database vs. on disk
 
 For reference, the importer copies the following manifest fields onto the
