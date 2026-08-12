@@ -1189,14 +1189,16 @@ def test_dry_run_reports_and_changes_nothing(tmp_path, monkeypatch):
 
 
 def test_dry_run_shows_the_page_text(tmp_path, monkeypatch):
+    """Seeing the dropped page's text is how the operator tells a credits
+    sheet from a cover, so the preview must be exact, not merely present.
+    `--fake-ocr` builds FakeOCREngine with no scripted responses, so every
+    page's text is its default, "fake page" (ocr.py:72)."""
     bundles = _env(tmp_path, monkeypatch)
     slug = _ingest_import(tmp_path, bundles, "Byte", "1985-12-01")
 
     r = runner.invoke(app, ["drop-leading-pages", slug, "--dry-run"])
 
-    # The fake OCR engine writes the PDF's own page text; whatever it is, the
-    # operator must see something to judge by.
-    assert "(no text)" in r.output or any(c.isalnum() for c in r.output.split("drop page 1")[1])
+    assert 'drop page 1  pages/0001.webp  "fake page"' in r.output
 
 
 def test_drop_repairs_bundle_and_database(tmp_path, monkeypatch):
