@@ -278,3 +278,32 @@ def test_mixed_outcome_first_committed_second_fails(tmp_path, monkeypatch):
     assert _db_state(tmp_path, good) == (2, [1, 2])
     assert _page_count(bundles, bad) == 3
     assert "1 bundle(s) repaired, 1 skipped" in r.output
+
+
+def test_staging_failure_is_reported_and_others_still_process(tmp_path, monkeypatch):
+    """stage_drop's call must be inside the per-bundle try, not before it: a
+    staging failure (ENOSPC, EACCES, a cross-device hardlink, a cover-rebuild
+    error) must be reported and skipped like any other failure, not escape
+    unhandled and abort the whole run before the second id is even
+    attempted."""
+    import magsearch.cli as cli_mod
+
+    bundles = _env(tmp_path, monkeypatch)
+    bad = _ingest_import(tmp_path, bundles, "Byte", "1985-12-01")
+    good = _ingest_import(tmp_path, bundles, "Compute", "1986-01-01")
+    real_stage = cli_mod.stage_drop
+
+    def flaky(plan):
+        if plan.magazine_id == bad:
+            raise OSError(28, "simulated ENOSPC during staging")
+        return real_stage(plan)
+
+    monkeypatch.setattr("magsearch.cli.stage_drop", flaky)
+
+    r = runner.invoke(app, ["drop-leading-pages", bad, good, "--yes"])
+
+    assert r.exit_code == 1, r.stdout
+    assert f"! {bad}" in r.output
+    assert "simulated ENOSPC" in r.output
+    assert _page_count(bundles, good) == 2
+    assert "1 bundle(s) repaired, 1 skipped" in r.output

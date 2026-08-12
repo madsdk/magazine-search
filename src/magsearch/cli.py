@@ -402,27 +402,35 @@ def drop_leading_pages_cmd(
     factory = make_session_factory(engine)
     repaired = 0
     for plan in plans:
-        staged = stage_drop(plan)
         try:
-            # resync_magazine needs the manifest stage_drop already built, so
-            # the swap can't run first: it runs resync_magazine (DB write,
-            # flushed but not committed) before commit_drop (the directory
-            # swap), and session_scope commits on clean exit — DB write →
-            # directory swap → commit. If resync_magazine raises, the staged
-            # repair is discarded and the live bundle is untouched; if
-            # commit_drop raises, the session rolls back too.
-            with session_scope(factory) as s:
-                try:
+            staged = stage_drop(plan)
+            try:
+                # resync_magazine needs the manifest stage_drop already built,
+                # so the swap can't run first: it runs resync_magazine (DB
+                # write, flushed but not committed) before commit_drop (the
+                # directory swap), and session_scope commits on clean exit —
+                # DB write → directory swap → commit. `staged` is inside this
+                # bundle's own try so a staging failure (ENOSPC, EACCES, a
+                # cross-device hardlink, a cover-rebuild error) is reported
+                # and skipped like any other, instead of aborting the whole
+                # run. A BaseException anywhere in this block (e.g. Ctrl-C)
+                # discards the staged repair before propagating, so an
+                # interrupted run never leaves a `<id>.new` directory that a
+                # later run would refuse to touch. If resync_magazine raises,
+                # the staged repair is discarded and the live bundle is
+                # untouched; if commit_drop raises, the session rolls back
+                # too.
+                with session_scope(factory) as s:
                     found = resync_magazine(s, staged.manifest, plan.count)
-                except Exception:
-                    discard_staged(staged)
-                    raise
-                commit_drop(staged)
+                    commit_drop(staged)
                 if not found:
                     typer.echo(
                         f"  ! {plan.magazine_id}: repaired on disk but not in database — "
                         f"run `magsearch import {settings.bundles_dir / plan.magazine_id}`"
                     )
+            except BaseException:
+                discard_staged(staged)
+                raise
         except Exception as exc:
             typer.echo(f"  ! {plan.magazine_id}: {exc}", err=True)
             failed += 1
