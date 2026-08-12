@@ -219,6 +219,20 @@ follow:
 Per bundle: build the staging directory, apply the DB changes and `flush()`,
 perform the directory swap, then `commit()`.
 
+**This ordering forces the disk repair to be split in two.** The DB update needs
+the rewritten manifest, and the manifest is only known once the staging tree
+exists — so a single `apply_drop` that both builds and swaps cannot be sequenced
+against the DB work at all. `bundle_edit` therefore exposes:
+
+- `stage_drop(plan) -> StagedDrop` — builds the staging tree and computes the new
+  manifest. Nothing about the live bundle changes; `StagedDrop` carries the
+  manifest, the staging path, and the backup path.
+- `commit_drop(staged) -> Manifest` — performs the two renames and removes the
+  backup.
+- `discard_staged(staged)` — removes an uncommitted staging tree.
+- `apply_drop(plan) -> Manifest` — `commit_drop(stage_drop(plan))`, retained for
+  callers that want the whole repair as one step.
+
 Flushing before the swap means a constraint violation or ORM error rolls the DB
 back while the live bundle is still untouched — the staging directory is removed
 and the bundle is reported as skipped. Committing after the swap keeps the window
