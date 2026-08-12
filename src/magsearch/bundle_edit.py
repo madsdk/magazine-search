@@ -4,9 +4,13 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from magsearch import checksums
 from magsearch.ingest.normalize import write_cover
 from magsearch.manifest import Manifest, PageEntry
+from magsearch.models import Magazine, Page
 
 STAGING_SUFFIX = ".new"
 BACKUP_SUFFIX = ".old"
@@ -244,3 +248,55 @@ def apply_drop(plan: DropPlan) -> Manifest:
 
     shutil.rmtree(backup)
     return manifest
+
+
+def resync_magazine(session: Session, manifest: Manifest, count: int) -> bool:
+    """Bring the DB rows in line with a bundle whose leading pages were dropped.
+
+    Updates in place rather than delete-and-reimport so surviving Page.ids stay
+    valid: research saves keep resolving, the pages_fts external-content index
+    stays consistent through the pages_au trigger, and ingested_at is preserved.
+
+    Returns False when the magazine has no row (nothing to do).
+    """
+    mag = session.get(Magazine, manifest.id)
+    if mag is None:
+        return False
+
+    dropped = session.scalars(
+        select(Page)
+        .where(Page.magazine_id == manifest.id, Page.page_number <= count)
+    ).all()
+    for page in dropped:
+        # Per-row ORM DELETE so the pages_ad trigger fires and the FK cascade
+        # clears research_topic_pages.
+        session.delete(page)
+    session.flush()
+
+    survivors = session.scalars(
+        select(Page)
+        .where(Page.magazine_id == manifest.id)
+        .order_by(Page.page_number)
+    ).all()
+
+    # Two passes via the negative range. uq_pages_mag_page is checked per row
+    # and SQLite gives no ordering guarantee, so a direct `n -= count` can
+    # collide with a row that has not shifted yet. No live page_number is
+    # negative, so the intermediate values are always free.
+    for page in survivors:
+        page.page_number = -page.page_number
+    session.flush()
+    for page in survivors:
+        page.page_number = -page.page_number - count
+    session.flush()
+
+    by_number = {entry.page_number: entry for entry in manifest.pages}
+    for page in survivors:
+        entry = by_number[page.page_number]
+        page.image_path = f"{manifest.id}/{entry.image_path}"
+        page.thumb_path = f"{manifest.id}/{entry.thumb_path}"
+
+    mag.page_count = len(manifest.pages)
+    mag.cover_path = f"{manifest.id}/{manifest.cover_path}" if manifest.cover_path else ""
+    session.flush()
+    return True
