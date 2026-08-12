@@ -268,8 +268,10 @@ def resync_magazine(session: Session, manifest: Manifest, count: int) -> bool:
         .where(Page.magazine_id == manifest.id, Page.page_number <= count)
     ).all()
     for page in dropped:
-        # Per-row ORM DELETE so the pages_ad trigger fires and the FK cascade
-        # clears research_topic_pages.
+        # Per-row ORM DELETE (not a bulk DELETE) so these objects leave the
+        # session's identity map immediately — keeping in-session state
+        # coherent with the database for the survivors this function goes on
+        # to shift below.
         session.delete(page)
     session.flush()
 

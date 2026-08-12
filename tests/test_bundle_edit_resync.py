@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -9,6 +9,7 @@ from alembic import command
 from magsearch.bundle_edit import apply_drop, plan_drop, resync_magazine
 from magsearch.db import make_engine, make_session_factory, session_scope
 from magsearch.importer import import_bundle
+from magsearch.manifest import Manifest, PageEntry
 from magsearch.models import Magazine, Page, ResearchTopic, ResearchTopicPage, User
 from magsearch.web.auth import hash_password
 from tests.fixtures.bundles import make_bundle
@@ -152,6 +153,98 @@ def test_resync_reports_a_missing_magazine_row(tmp_path, factory):
 
     with session_scope(factory) as s:
         assert resync_magazine(s, manifest, count=1) is False
+
+
+def test_resync_shift_survives_id_page_number_inversion(factory):
+    """Pins the two-pass negation shift against a regression: a naive
+    single-pass `page_number -= count` happens to work whenever Page.id
+    ascends in the same order as page_number (the case for every other test
+    in this file, since import_bundle assigns ids in page_number order) —
+    SQLAlchemy's unit of work flushes dirty UPDATEs in ascending primary-key
+    order, so ascending ids there means the lowest page_number is always
+    vacated before a higher one needs its slot.
+
+    Build a magazine directly with Page rows inserted in descending
+    page_number order, so id 1 holds the *highest* surviving page_number and
+    the flush therefore processes it first — forcing a naive shift to move a
+    high number into a slot a not-yet-updated lower survivor still occupies.
+    """
+    now = datetime.now(UTC).replace(tzinfo=None)
+    with session_scope(factory) as s:
+        s.add(Magazine(
+            id="inv-1985-01",
+            title="Inv",
+            issue=None,
+            publication_date=date(1985, 1, 1),
+            publisher=None,
+            original_filename="inv.pdf",
+            original_format="pdf",
+            page_count=4,
+            content_hash="deadbeef",
+            cover_path="inv-1985-01/cover.webp",
+            ocr_engine="fake",
+            ocr_engine_version="1",
+            ingested_at=now,
+        ))
+        s.flush()
+        # Descending insert order: id 1 -> page_number 4, ..., id 4 -> page_number 1.
+        for page_number in (4, 3, 2, 1):
+            s.add(Page(
+                magazine_id="inv-1985-01",
+                page_number=page_number,
+                image_path=f"inv-1985-01/pages/{page_number:04d}.webp",
+                thumb_path=f"inv-1985-01/thumbs/{page_number:04d}.webp",
+                text=f"word-{page_number}",
+            ))
+
+    with session_scope(factory) as s:
+        ids_by_number = {
+            p.page_number: p.id
+            for p in s.scalars(select(Page).where(Page.magazine_id == "inv-1985-01")).all()
+        }
+    # Confirm the fixture actually inverts id order relative to page_number
+    # order before trusting it to exercise anything.
+    assert [ids_by_number[n] for n in (1, 2, 3, 4)] == [4, 3, 2, 1]
+
+    # A matching manifest: page 1 was dropped, survivors 2/3/4 renumbered 1/2/3.
+    manifest = Manifest(
+        schema_version=1,
+        id="inv-1985-01",
+        title="Inv",
+        issue=None,
+        publication_date=date(1985, 1, 1),
+        publisher=None,
+        original_filename="inv.pdf",
+        original_format="pdf",
+        page_count=3,
+        content_hash="deadbeef",
+        ocr_engine="fake",
+        ocr_engine_version="1",
+        cover_path="cover.webp",
+        pages=[
+            PageEntry(page_number=1, image_path="pages/0001.webp",
+                      thumb_path="thumbs/0001.webp", ocr_path="ocr/0001.txt", text="word-2"),
+            PageEntry(page_number=2, image_path="pages/0002.webp",
+                      thumb_path="thumbs/0002.webp", ocr_path="ocr/0002.txt", text="word-3"),
+            PageEntry(page_number=3, image_path="pages/0003.webp",
+                      thumb_path="thumbs/0003.webp", ocr_path="ocr/0003.txt", text="word-4"),
+        ],
+        checksums=[],
+    )
+
+    with session_scope(factory) as s:
+        assert resync_magazine(s, manifest, count=1) is True
+
+    with session_scope(factory) as s:
+        pages = s.scalars(
+            select(Page).where(Page.magazine_id == "inv-1985-01").order_by(Page.page_number)
+        ).all()
+        assert [p.page_number for p in pages] == [1, 2, 3]
+        assert [p.image_path for p in pages] == [
+            "inv-1985-01/pages/0001.webp",
+            "inv-1985-01/pages/0002.webp",
+            "inv-1985-01/pages/0003.webp",
+        ]
 
 
 def test_resync_handles_count_two(tmp_path, factory):
