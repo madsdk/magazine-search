@@ -382,6 +382,11 @@ Options:
 `check` only reports; it never modifies bundles. Fix misaligned highlights with
 `magsearch ocr-rescale`, and re-ingest to recover missing pages or empty OCR.
 
+`ocr-rescale` skips any bundle whose `manifest.page_count` differs from its
+`original.<ext>` page count — for example after `magsearch drop-leading-pages` —
+because it pairs bundle pages with archive pages by position, and a mismatched
+pairing would rescale bboxes against the wrong source image.
+
 ## Deploying the web app with Docker
 
 The repo ships a `Dockerfile` for the server side (no GPU, no PaddleOCR).

@@ -63,3 +63,45 @@ def test_cli_ingest_cbr_without_rar_backend_exits_with_actionable_message(
     assert r.exit_code == 2, r.output
     assert "apt-get install unar" in r.output
     assert "Traceback" not in r.output
+
+
+def test_ocr_rescale_skips_a_bundle_whose_page_count_drifted(tmp_path, monkeypatch):
+    """A repaired bundle has fewer pages than its archive; pairing them
+    positionally would rescale each page against the wrong source image."""
+    import json
+
+    from tests.fixtures.bundles import make_bundle
+
+    bundle = make_bundle(tmp_path, num_pages=3)
+    # Put the OCR JSONs back in the old array format so there is work to skip.
+    for ocr_path in (bundle / "ocr").glob("*.json"):
+        doc = json.loads(ocr_path.read_text())
+        ocr_path.write_text(json.dumps(doc["regions"]))
+    # Simulate a repaired bundle: manifest says 2 pages, original.pdf has 3.
+    data = json.loads((bundle / "manifest.json").read_text())
+    data["page_count"] = 2
+    data["pages"] = data["pages"][:2]
+    (bundle / "manifest.json").write_text(json.dumps(data))
+
+    r = runner.invoke(app, ["ocr-rescale", str(bundle.parent)])
+
+    assert r.exit_code == 0, r.stdout
+    assert "does not match the archive" in r.output
+    # Untouched: still the old array format.
+    assert isinstance(json.loads((bundle / "ocr" / "0001.json").read_text()), list)
+
+
+def test_ocr_rescale_still_processes_a_consistent_bundle(tmp_path, monkeypatch):
+    import json
+
+    from tests.fixtures.bundles import make_bundle
+
+    bundle = make_bundle(tmp_path, num_pages=2)
+    for ocr_path in (bundle / "ocr").glob("*.json"):
+        doc = json.loads(ocr_path.read_text())
+        ocr_path.write_text(json.dumps(doc["regions"]))
+
+    r = runner.invoke(app, ["ocr-rescale", str(bundle.parent)])
+
+    assert r.exit_code == 0, r.stdout
+    assert isinstance(json.loads((bundle / "ocr" / "0001.json").read_text()), dict)

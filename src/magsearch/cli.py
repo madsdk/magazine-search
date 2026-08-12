@@ -30,6 +30,7 @@ from magsearch.importer import (
     import_bundle,
     resolve_magazines,
 )
+from magsearch.manifest import Manifest
 from magsearch.models import Magazine, User
 from magsearch.settings import get_settings
 from magsearch.web.auth import hash_password, normalize_username
@@ -623,7 +624,7 @@ def ocr_rescale_cmd(
     No OCR re-run.
     """
     import json as _json
-    from magsearch.ingest.formats import detect_format, read_pages
+    from magsearch.ingest.formats import detect_format, page_count, read_pages
 
     bundles = sorted(p for p in bundles_dir.iterdir() if p.is_dir() and (p / "manifest.json").exists())
     if not bundles:
@@ -645,6 +646,25 @@ def ocr_rescale_cmd(
         except Exception as exc:
             typer.echo(f"  ! {bundle.name}: detect_format failed: {exc} — skipping", err=True)
             failed_bundles += 1
+            continue
+
+        # Positional pairing only holds while bundle page N is archive page N.
+        # `drop-leading-pages` breaks that on purpose, and a rescale against the
+        # wrong source image's dimensions would be silently plausible.
+        try:
+            manifest = Manifest.model_validate_json((bundle / "manifest.json").read_text())
+            archive_pages = page_count(original, fmt)
+        except Exception as exc:
+            typer.echo(f"  ! {bundle.name}: cannot read page counts: {exc} — skipping", err=True)
+            failed_bundles += 1
+            continue
+        if manifest.page_count != archive_pages:
+            typer.echo(
+                f"  · {bundle.name}: manifest has {manifest.page_count} pages but "
+                f"{original.name} has {archive_pages} — page numbering does not match "
+                f"the archive (dropped pages?); skipping"
+            )
+            skipped_bundles += 1
             continue
 
         # Pre-flight: how many OCR JSONs are still in old (array) format?
