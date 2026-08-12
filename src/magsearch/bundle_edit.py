@@ -1,8 +1,10 @@
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 from magsearch import checksums
+from magsearch.ingest.normalize import write_cover
 from magsearch.manifest import Manifest, PageEntry
 
 STAGING_SUFFIX = ".new"
@@ -106,3 +108,80 @@ def plan_drop(bundles_root: Path, magazine_id: str, count: int) -> DropPlan:
         surviving=pages[count:],
         new_page_count=total - count,
     )
+
+
+def _renumbered(rel_path: str, new_number: int) -> str:
+    """Rebuild a bundle-relative path with a new NNNN stem, keeping the
+    producer's own directory and suffix (paths need not be pages/NNNN.webp)."""
+    p = Path(rel_path)
+    return str(p.with_name(f"{new_number:04d}{p.suffix}"))
+
+
+def apply_drop(plan: DropPlan) -> Manifest:
+    """Repair the bundle on disk. Returns the manifest now on disk.
+
+    Builds a sibling staging directory of hardlinks and swaps it in, so the live
+    bundle is untouched until a single rename, and an interruption anywhere
+    leaves it intact.
+    """
+    # plan_drop already proved bundle_dir is an immediate child of bundles_root.
+    bundle = plan.bundle_dir
+    root = plan.bundles_root
+    staging = root / f"{bundle.name}{STAGING_SUFFIX}"
+    backup = root / f"{bundle.name}{BACKUP_SUFFIX}"
+
+    try:
+        staging.mkdir()
+        new_entries: list[PageEntry] = []
+        for new_number, entry in enumerate(plan.surviving, start=1):
+            new_entry = PageEntry(
+                page_number=new_number,
+                image_path=_renumbered(entry.image_path, new_number),
+                thumb_path=_renumbered(entry.thumb_path, new_number),
+                ocr_path=_renumbered(entry.ocr_path, new_number),
+                text=entry.text,
+            )
+            for old_rel, new_rel in (
+                (entry.image_path, new_entry.image_path),
+                (entry.thumb_path, new_entry.thumb_path),
+                (entry.ocr_path, new_entry.ocr_path),
+            ):
+                dest = staging / new_rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                # Hardlink, not copy: staging a 60 MB+ bundle must not cost
+                # disk or time, and these files are never written through.
+                dest.hardlink_to(bundle / old_rel)
+            new_entries.append(new_entry)
+
+        for original in bundle.glob("original.*"):
+            (staging / original.name).hardlink_to(original)
+
+        # The old cover is a copy of the junk thumbnail — rebuild, never link.
+        cover_rel = ""
+        if new_entries:
+            write_cover(staging / new_entries[0].thumb_path, staging / "cover.webp")
+            cover_rel = "cover.webp"
+
+        manifest = plan.manifest.model_copy(update={
+            "page_count": len(new_entries),
+            "pages": new_entries,
+            "cover_path": cover_rel,
+            "checksums": checksums.collect(staging),
+        })
+        tmp_manifest = staging / "manifest.json.tmp"
+        tmp_manifest.write_text(manifest.model_dump_json(indent=2))
+        tmp_manifest.replace(staging / "manifest.json")
+
+        bundle.rename(backup)
+        try:
+            staging.rename(bundle)
+        except OSError:
+            backup.rename(bundle)  # put the live bundle back before re-raising
+            raise
+    except Exception:
+        if staging.exists():
+            shutil.rmtree(staging)
+        raise
+
+    shutil.rmtree(backup)
+    return manifest
