@@ -34,6 +34,18 @@ class DropPlan:
     new_page_count: int
 
 
+@dataclass
+class StagedDrop:
+    """A drop repair built in a sibling staging directory but not yet swapped
+    in. The live bundle is untouched; `manifest` is already computed so a
+    caller can update the database before committing the on-disk swap."""
+
+    plan: DropPlan
+    staging: Path
+    backup: Path
+    manifest: Manifest
+
+
 def page_text_preview(entry: PageEntry, width: int = 80) -> str:
     """One-line preview of a page's OCR text, for the operator to eyeball.
 
@@ -150,12 +162,18 @@ def _fsync_dir_best_effort(path: Path) -> None:
         os.close(fd)
 
 
-def apply_drop(plan: DropPlan) -> Manifest:
-    """Repair the bundle on disk. Returns the manifest now on disk.
+def stage_drop(plan: DropPlan) -> StagedDrop:
+    """Build the drop repair in a sibling staging directory. Returns a
+    `StagedDrop` describing it. The live bundle is untouched by this call.
 
-    Builds a sibling staging directory of hardlinks and swaps it in, so the live
-    bundle is untouched until a single rename, and an interruption anywhere
-    leaves it intact.
+    Builds a sibling staging directory of hardlinks and fsyncs it, so the
+    directory is ready to swap in with a single rename. Callers that decide
+    not to proceed (e.g. a database write failed) must call `discard_staged`
+    on the result rather than leaving it behind; `commit_drop` performs the
+    swap.
+
+    On any failure the staging directory is removed before the exception
+    propagates, so a half-built staging tree is never left behind.
     """
     # plan_drop already proved bundle_dir is an immediate child of bundles_root.
     bundle = plan.bundle_dir
@@ -234,7 +252,37 @@ def apply_drop(plan: DropPlan) -> Manifest:
             _fsync_file(staging / "cover.webp")
         _fsync_file(staging / "manifest.json")
         _fsync_dir_best_effort(staging)
+    except Exception:
+        if staging.exists():
+            shutil.rmtree(staging)
+        raise
 
+    return StagedDrop(plan=plan, staging=staging, backup=backup, manifest=manifest)
+
+
+def discard_staged(staged: StagedDrop) -> None:
+    """Best-effort removal of a staging tree that will not be committed.
+
+    Safe to call when the staging directory is already gone — e.g. after
+    `commit_drop` has consumed it, or if `discard_staged` is called twice.
+    """
+    if staged.staging.exists():
+        shutil.rmtree(staged.staging)
+
+
+def commit_drop(staged: StagedDrop) -> Manifest:
+    """Swap a staged repair into place. Returns the manifest now on disk.
+
+    A two-step rename (`<id>` → `<id>.old`, then `<id>.new` → `<id>`) keeps the
+    live bundle intact until the first rename and restores it from the backup
+    if the second rename fails, so an interruption anywhere in the swap leaves
+    a usable bundle. `rmtree(backup)` only runs after both renames succeed.
+    """
+    bundle = staged.plan.bundle_dir
+    staging = staged.staging
+    backup = staged.backup
+
+    try:
         bundle.rename(backup)
         try:
             staging.rename(bundle)
@@ -247,7 +295,16 @@ def apply_drop(plan: DropPlan) -> Manifest:
         raise
 
     shutil.rmtree(backup)
-    return manifest
+    return staged.manifest
+
+
+def apply_drop(plan: DropPlan) -> Manifest:
+    """Repair the bundle on disk in one call. Returns the manifest now on disk.
+
+    Equivalent to `commit_drop(stage_drop(plan))` — kept for callers that have
+    no reason to do database work between staging and committing.
+    """
+    return commit_drop(stage_drop(plan))
 
 
 def resync_magazine(session: Session, manifest: Manifest, count: int) -> bool:

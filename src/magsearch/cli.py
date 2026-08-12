@@ -15,10 +15,12 @@ from sqlalchemy.exc import DatabaseError
 from magsearch.bulk_import import bulk_import
 from magsearch.bundle_edit import (
     BundleEditError,
-    apply_drop,
+    commit_drop,
+    discard_staged,
     page_text_preview,
     plan_drop,
     resync_magazine,
+    stage_drop,
 )
 from magsearch.db import make_engine, make_session_factory, session_scope
 from magsearch.health import check_bundle, check_fts_integrity, iter_all_target_ids
@@ -400,19 +402,28 @@ def drop_leading_pages_cmd(
     factory = make_session_factory(engine)
     repaired = 0
     for plan in plans:
+        staged = stage_drop(plan)
         try:
-            # session_scope commits on clean exit, so putting apply_drop last
-            # inside the block gives: DB flush → directory swap → commit. A DB
-            # error rolls back with the bundle untouched; a swap error rolls
-            # back the DB too.
+            # resync_magazine needs the manifest stage_drop already built, so
+            # the swap can't run first: it runs resync_magazine (DB write,
+            # flushed but not committed) before commit_drop (the directory
+            # swap), and session_scope commits on clean exit — DB write →
+            # directory swap → commit. If resync_magazine raises, the staged
+            # repair is discarded and the live bundle is untouched; if
+            # commit_drop raises, the session rolls back too.
             with session_scope(factory) as s:
-                manifest = apply_drop(plan)
-                if not resync_magazine(s, manifest, plan.count):
+                try:
+                    found = resync_magazine(s, staged.manifest, plan.count)
+                except Exception:
+                    discard_staged(staged)
+                    raise
+                commit_drop(staged)
+                if not found:
                     typer.echo(
                         f"  ! {plan.magazine_id}: repaired on disk but not in database — "
                         f"run `magsearch import {settings.bundles_dir / plan.magazine_id}`"
                     )
-        except (BundleEditError, OSError, DatabaseError) as exc:
+        except Exception as exc:
             typer.echo(f"  ! {plan.magazine_id}: {exc}", err=True)
             failed += 1
             continue

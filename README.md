@@ -340,7 +340,7 @@ Some CBR archives put a scan-credits sheet or release-group logo ahead of the
 cover. It becomes page 1, the real cover becomes page 2, and the whole issue is
 off by one.
 
-```
+```bash
 magsearch drop-leading-pages <magazine-id> --dry-run   # confirm it's junk
 magsearch drop-leading-pages <magazine-id>
 magsearch drop-leading-pages <id-a> <id-b> --count 2 --yes
@@ -351,7 +351,7 @@ which is how you tell a credits sheet from a cover. The repair renumbers the
 remaining pages on disk, rebuilds `cover.webp`, rewrites the manifest, and
 shifts the database rows in place. OCR is not re-run, and `original.<ext>` is
 left byte-identical — so the archive you downloaded still contains the junk
-image, and bundle page N now corresponds to archive page N+1.
+image, and bundle page N now corresponds to archive page N+count.
 
 `--count` applies to every ID in one invocation. Verify afterwards with
 `magsearch check --checksums <magazine-id>`.
