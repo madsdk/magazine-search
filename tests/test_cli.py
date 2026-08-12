@@ -44,3 +44,22 @@ def test_cli_ingest_then_import_creates_searchable_magazine(tmp_path, monkeypatc
     r = runner.invoke(app, ["import", str(bundle)])
     assert r.exit_code == 0, r.stdout
     assert "byte-1985-12" in r.stdout
+
+
+def test_cli_ingest_cbr_without_rar_backend_exits_with_actionable_message(
+    tmp_path, monkeypatch, no_rar_backend
+):
+    """No traceback — the user gets told which tool to install."""
+    from tests.fixtures.cbrs import make_cbr
+
+    src = make_cbr(tmp_path / "byte.cbr")
+    r = runner.invoke(app, [
+        "ingest", str(src),
+        "--title", "Byte",
+        "--date", "1985-12-01",
+        "--bundles-dir", str(tmp_path / "bundles"),
+        "--fake-ocr",
+    ])
+    assert r.exit_code == 2, r.output
+    assert "apt-get install unar" in r.output
+    assert "Traceback" not in r.output

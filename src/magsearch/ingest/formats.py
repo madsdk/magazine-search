@@ -10,6 +10,21 @@ from PIL import Image
 
 Format = Literal["pdf", "cbz", "cbr"]
 
+
+class MissingRarBackendError(RuntimeError):
+    """No external tool rarfile can drive is installed."""
+
+
+# rarfile only parses RAR headers itself; decompression is shelled out to one
+# of unrar / unar / 7z / bsdtar. Its own error for this is the bare "Cannot
+# find working tool", which says nothing about what to install.
+_MISSING_RAR_BACKEND = (
+    "cannot read {path}: decompressing a CBR needs an external RAR tool on "
+    "PATH and none was found. Install `unar` (free) or `unrar` (non-free) — "
+    "on Debian/Ubuntu, `apt-get install unar`. `unrar-free` is not a working "
+    "substitute: rarfile cannot drive it."
+)
+
 _PDF_MAGIC = b"%PDF-"
 _ZIP_MAGIC = b"PK\x03\x04"
 _RAR4_MAGIC = b"Rar!\x1a\x07\x00"
@@ -83,13 +98,16 @@ def _read_cbz(path: Path) -> Iterator[tuple[int, Image.Image]]:
 
 
 def _read_cbr(path: Path) -> Iterator[tuple[int, Image.Image]]:
-    with rarfile.RarFile(path) as rf:
-        names = sorted(
-            n for n in rf.namelist()
-            if not n.endswith("/") and n.lower().endswith(_IMAGE_EXTS)
-        )
-        for i, name in enumerate(names, start=1):
-            with rf.open(name) as fh:
-                img = Image.open(BytesIO(fh.read()))
-                img.load()
-                yield i, img
+    try:
+        with rarfile.RarFile(path) as rf:
+            names = sorted(
+                n for n in rf.namelist()
+                if not n.endswith("/") and n.lower().endswith(_IMAGE_EXTS)
+            )
+            for i, name in enumerate(names, start=1):
+                with rf.open(name) as fh:
+                    img = Image.open(BytesIO(fh.read()))
+                    img.load()
+                    yield i, img
+    except rarfile.RarCannotExec as exc:
+        raise MissingRarBackendError(_MISSING_RAR_BACKEND.format(path=path)) from exc

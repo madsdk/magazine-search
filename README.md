@@ -373,10 +373,12 @@ docker run -d --name magsearch --restart unless-stopped \
 
 This:
 
-1. Builds a Python 3.11 slim image with `unrar-free` installed for CBR
-   support, and the `[ingest]` extra (PyMuPDF + rarfile) so `magsearch
-   ocr-rescale` and `magsearch check` run in-container. (No GPU / PaddleOCR —
-   full re-ingestion still uses `Dockerfile.ingest`.)
+1. Builds a Python 3.11 slim image with `unar` installed for CBR support
+   (rarfile shells out to it to decompress; `unrar-free` is not a dependable
+   substitute — see the comment in `Dockerfile`), and the `[ingest]` extra
+   (PyMuPDF + rarfile) so `magsearch ocr-rescale` and `magsearch check` run
+   in-container. (No GPU / PaddleOCR — full re-ingestion still uses
+   `Dockerfile.ingest`.)
 2. Bind-mounts `./data` to `/data` in the container — that's where the
    SQLite file and the bundle directories live.
 3. Runs `magsearch db upgrade` on start, then `magsearch web` on

@@ -111,6 +111,7 @@ def ingest_cmd(
         help="OCR device: auto (detect), cpu, or gpu. GPU requires paddlepaddle-gpu.",
     ),
 ) -> None:
+    from magsearch.ingest.formats import MissingRarBackendError
     from magsearch.ingest.pipeline import IngestOptions, IngestPipeline
 
     settings = get_settings()
@@ -128,7 +129,11 @@ def ingest_cmd(
     )
     on_page = _make_progress_reporter()
     started = time.monotonic()
-    result = pipeline.run(source, force=force, on_page=on_page)
+    try:
+        result = pipeline.run(source, force=force, on_page=on_page)
+    except MissingRarBackendError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2)
     if on_page is not None:
         typer.echo("", err=True)  # finish the in-place progress line
     elapsed = int(time.monotonic() - started)

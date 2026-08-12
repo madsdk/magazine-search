@@ -16,6 +16,32 @@ from magsearch.web.auth import hash_password
 from tests.fixtures.pdfs import make_pdf
 
 
+_RARFILE_TOOLS = (
+    "UNRAR_TOOL",
+    "UNAR_TOOL",
+    "BSDTAR_TOOL",
+    "SEVENZIP_TOOL",
+    "SEVENZIP2_TOOL",
+)
+
+
+@pytest.fixture
+def no_rar_backend(monkeypatch):
+    """Make rarfile behave as it does in an image with no CBR backend.
+
+    FORCE_TOOL pushes even stored entries through the external tool (they'd
+    otherwise be read in pure Python), and pointing every candidate binary at a
+    name that doesn't exist makes rarfile's probe fail the way unrar-free does
+    on ubuntu:24.04.
+    """
+    import rarfile
+
+    monkeypatch.setattr(rarfile, "FORCE_TOOL", True)
+    monkeypatch.setattr(rarfile, "CURRENT_SETUP", None)
+    for tool in _RARFILE_TOOLS:
+        monkeypatch.setattr(rarfile, tool, "magsearch-nonexistent-tool")
+
+
 def _ingest_two_magazines(bundles_dir: Path, src_dir: Path):
     """Create two distinct test magazines with predictable text."""
     return [

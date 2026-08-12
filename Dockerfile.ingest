@@ -29,14 +29,25 @@ ENV DEBIAN_FRONTEND=noninteractive \
 #   python3.12, python3.12-venv — runtime + venv module (Ubuntu 24.04)
 #   libgomp1                    — GNU OpenMP runtime, required by paddle at import
 #   libgl1, libglib2.0-0        — required by OpenCV (pulled in by paddlex)
-#   unrar-free                  — CBR archive support
+#   unar                        — CBR archive support; rarfile's backend
 #   ccache                      — silences paddle's "no ccache" warning
+#
+# CBR backend: rarfile only wraps an external tool, and of the ones it probes
+# (unrar, unar, 7z, 7zz, bsdtar) only unrar and unar handle solid archives —
+# bsdtar and 7z raise BadRarFile partway through a solid RAR5. unar is the
+# free one; swap in `unrar` (multiverse, non-free) if you prefer it.
+#
+# NOT unrar-free (what this image used to install): it registers /usr/bin/unrar
+# via update-alternatives, so it looks right, but ubuntu:24.04 ships 0.1.3,
+# whose CLI has no `p` pipe-to-stdout command and whose reply to rarfile's probe
+# (`unrar -inul -?`) is exit 64. rarfile then finds no working tool and every
+# CBR ingest fails with "RarCannotExec: Cannot find working tool".
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       python3.12 python3.12-venv \
       libgomp1 \
       libgl1 libglib2.0-0 \
-      unrar-free ccache \
+      unar ccache \
       ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 

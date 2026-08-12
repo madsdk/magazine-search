@@ -1,12 +1,7 @@
 """CBZ generation helper for tests.
 
-To generate a CBR fixture later (requires the non-free `rar` binary on PATH):
-
-    mkdir -p /tmp/cbr_src
-    python -c "from PIL import Image; Image.new('RGB',(50,50),'red').save('/tmp/cbr_src/001.png'); Image.new('RGB',(50,50),'blue').save('/tmp/cbr_src/002.png')"
-    cd /tmp/cbr_src && rar a -m0 tiny.rar 001.png 002.png && mv tiny.rar <repo>/tests/fixtures/tiny.cbr
-
-When `tests/fixtures/tiny.cbr` exists, the CBR-read test is auto-enabled.
+For CBR fixtures see `cbrs.make_cbr` — it writes a stored-only RAR 4 archive
+directly, so no non-free `rar` binary is needed.
 """
 import io
 import zipfile
