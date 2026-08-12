@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from magsearch import checksums
 from magsearch.ingest.formats import detect_format, page_count, read_pages
 from magsearch.ingest.ids import content_hash, generate_id, resolve_unique_id
 from magsearch.ingest.normalize import encode_page, encode_thumb, write_cover
@@ -187,8 +188,4 @@ class IngestPipeline:
 
 
 def _collect_checksums(bundle: Path) -> list[FileChecksum]:
-    out: list[FileChecksum] = []
-    for p in sorted(bundle.rglob("*")):
-        if p.is_file() and p.name not in ("manifest.json", "manifest.json.tmp"):
-            out.append(FileChecksum(path=str(p.relative_to(bundle)), sha256=content_hash(p)))
-    return out
+    return checksums.collect(bundle)

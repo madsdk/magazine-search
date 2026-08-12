@@ -8,7 +8,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from magsearch.ingest.ids import content_hash
+from magsearch import checksums
 from magsearch.manifest import Manifest
 from magsearch.models import Magazine, Page
 
@@ -119,9 +119,10 @@ def import_bundle(bundle_dir: Path, session: Session) -> str:
 
 
 def _verify_checksums(bundle_dir: Path, manifest: Manifest) -> None:
-    for c in manifest.checksums:
-        path = bundle_dir / c.path
-        if not path.exists():
-            raise ImportError(f"bundle missing file {c.path}")
-        if content_hash(path) != c.sha256:
-            raise ImportError(f"checksum mismatch on {c.path}")
+    """Kept as the documented entry point for third-party bundle producers
+    (docs/datamodel/bundles.md). Delegates to magsearch.checksums.verify and
+    re-raises as this module's ImportError so callers' handling is unchanged."""
+    try:
+        checksums.verify(bundle_dir, manifest)
+    except checksums.ChecksumError as exc:
+        raise ImportError(str(exc)) from exc
