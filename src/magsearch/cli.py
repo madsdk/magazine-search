@@ -13,6 +13,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import DatabaseError
 
 from magsearch.bulk_import import bulk_import
+from magsearch.bundle_edit import (
+    BundleEditError,
+    apply_drop,
+    page_text_preview,
+    plan_drop,
+    resync_magazine,
+)
 from magsearch.db import make_engine, make_session_factory, session_scope
 from magsearch.health import check_bundle, check_fts_integrity, iter_all_target_ids
 from magsearch.importer import (
@@ -322,6 +329,99 @@ def delete_cmd(
         delete_bundle_dir(settings.bundles_dir, mid)
 
     typer.echo(f"deleted {len(deleted_ids)} magazine(s), {total_pages} pages, freed ~{_mb(total_bytes)}")
+
+
+@app.command("drop-leading-pages")
+def drop_leading_pages_cmd(
+    ids: Annotated[list[str] | None, typer.Argument(help="Magazine IDs to repair.")] = None,
+    count: Annotated[
+        int,
+        typer.Option("--count", help="Number of leading pages to drop from each bundle."),
+    ] = 1,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Report what would be dropped and stop."),
+    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")] = False,
+) -> None:
+    """Drop junk leading page(s) from imported bundles and renumber the rest.
+
+    For issues whose archive put a scan-credits or logo sheet ahead of the
+    cover. Renumbers pages on disk and updates the database in place — no
+    re-OCR, and `original.<ext>` is left byte-identical.
+    """
+    ids = ids or []
+    if not ids:
+        typer.echo("drop-leading-pages: specify at least one magazine ID", err=True)
+        raise typer.Exit(code=2)
+
+    settings = get_settings()
+
+    plans = []
+    failed = 0
+    for mid in ids:
+        try:
+            plan = plan_drop(settings.bundles_dir, mid, count)
+        except BundleEditError as exc:
+            typer.echo(f"  ! {mid}: {exc}", err=True)
+            failed += 1
+            continue
+        plans.append(plan)
+
+    for plan in plans:
+        total = len(plan.manifest.pages)
+        typer.echo(
+            f"{plan.magazine_id} — {plan.manifest.title} "
+            f"({total} pages → {plan.new_page_count})"
+        )
+        for entry in plan.dropped:
+            typer.echo(
+                f"  drop page {entry.page_number}  {entry.image_path}  "
+                f"\"{page_text_preview(entry)}\""
+            )
+        first = plan.surviving[0]
+        typer.echo(
+            f"  new page 1 ← old page {first.page_number}  "
+            f"{first.thumb_path} becomes the cover"
+        )
+
+    if dry_run:
+        typer.echo(f"dry run: {len(plans)} bundle(s) would be repaired, {failed} skipped")
+        raise typer.Exit(code=1 if failed else 0)
+
+    if not plans:
+        typer.echo("no bundles to repair", err=True)
+        raise typer.Exit(code=1)
+
+    if not yes:
+        typer.confirm("Proceed?", abort=True)
+
+    engine = make_engine(settings.database_url)
+    factory = make_session_factory(engine)
+    repaired = 0
+    for plan in plans:
+        try:
+            # session_scope commits on clean exit, so putting apply_drop last
+            # inside the block gives: DB flush → directory swap → commit. A DB
+            # error rolls back with the bundle untouched; a swap error rolls
+            # back the DB too.
+            with session_scope(factory) as s:
+                manifest = apply_drop(plan)
+                if not resync_magazine(s, manifest, plan.count):
+                    typer.echo(
+                        f"  ! {plan.magazine_id}: repaired on disk but not in database — "
+                        f"run `magsearch import {settings.bundles_dir / plan.magazine_id}`"
+                    )
+        except (BundleEditError, OSError, DatabaseError) as exc:
+            typer.echo(f"  ! {plan.magazine_id}: {exc}", err=True)
+            failed += 1
+            continue
+        typer.echo(f"  ✓ {plan.magazine_id}: {plan.new_page_count} pages")
+        repaired += 1
+
+    typer.echo(f"drop-leading-pages: {repaired} bundle(s) repaired, {failed} skipped")
+    if failed:
+        raise typer.Exit(code=1)
 
 
 def _print_report(report) -> None:

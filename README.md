@@ -334,6 +334,28 @@ Prints a summary and asks for confirmation; `--yes`/`-y` skips the prompt for
 non-interactive use (e.g. `docker exec magsearch magsearch delete … --yes`).
 Deletion is permanent; re-run `magsearch import` on the bundle to restore.
 
+## Fixing a junk first page
+
+Some CBR archives put a scan-credits sheet or release-group logo ahead of the
+cover. It becomes page 1, the real cover becomes page 2, and the whole issue is
+off by one.
+
+```
+magsearch drop-leading-pages <magazine-id> --dry-run   # confirm it's junk
+magsearch drop-leading-pages <magazine-id>
+magsearch drop-leading-pages <id-a> <id-b> --count 2 --yes
+```
+
+The dry run prints each page it would drop together with that page's OCR text,
+which is how you tell a credits sheet from a cover. The repair renumbers the
+remaining pages on disk, rebuilds `cover.webp`, rewrites the manifest, and
+shifts the database rows in place. OCR is not re-run, and `original.<ext>` is
+left byte-identical — so the archive you downloaded still contains the junk
+image, and bundle page N now corresponds to archive page N+1.
+
+`--count` applies to every ID in one invocation. Verify afterwards with
+`magsearch check --checksums <magazine-id>`.
+
 ## Checking bundle health
 
 Audit bundles for the damage a bad ingestion can leave behind — missing page
