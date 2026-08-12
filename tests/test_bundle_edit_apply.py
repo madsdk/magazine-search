@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from magsearch import checksums
 from magsearch.bundle_edit import apply_drop, plan_drop
 from magsearch.checksums import verify
 from magsearch.manifest import Manifest
@@ -74,6 +75,7 @@ def test_apply_writes_a_manifest_that_verifies(tmp_path):
 def test_apply_preserves_provenance_fields(tmp_path):
     bundle = make_bundle(tmp_path, num_pages=3)
     before = Manifest.model_validate_json((bundle / "manifest.json").read_text())
+    before_snapshot = _snapshot(bundle)
 
     after = apply_drop(plan_drop(bundle.parent, bundle.name, count=1))
 
@@ -84,7 +86,64 @@ def test_apply_preserves_provenance_fields(tmp_path):
     assert after.title == before.title
     assert after.publication_date == before.publication_date
     assert after.ocr_engine == before.ocr_engine
-    assert (bundle / f"original.{before.original_format}").exists()
+    original_rel = f"original.{before.original_format}"
+    assert (bundle / original_rel).exists()
+    # Byte-equality, not just existence — a truncated or replaced archive
+    # would still pass the existence check and the manifest re-verify, since
+    # the new checksums are computed from staging, i.e. from the (possibly
+    # corrupted) copy itself.
+    assert (bundle / original_rel).read_bytes() == before_snapshot[original_rel]
+
+
+def test_apply_hardlinks_surviving_pages_rather_than_copying(tmp_path):
+    """rmtree(backup) at the end is only safe because the live tree and the
+    backup share inodes with staging. If this ever became a copy, the file
+    would get a fresh inode and this would fail."""
+    bundle = make_bundle(tmp_path, num_pages=3)
+    old_inode = (bundle / "pages/0002.webp").stat().st_ino
+
+    apply_drop(plan_drop(bundle.parent, bundle.name, count=1))
+
+    assert (bundle / "pages/0001.webp").stat().st_ino == old_inode
+
+
+def test_apply_preserves_extra_files_outside_the_page_set(tmp_path):
+    """docs/datamodel/bundles.md permits extra declared files (e.g. operator
+    notes) as part of the bundle format. They must survive the repair
+    byte-identical, not be silently destroyed when the backup is removed."""
+    bundle = make_bundle(tmp_path, num_pages=3)
+    (bundle / "notes.txt").write_bytes(b"scanner notes")
+    (bundle / "extra_dir").mkdir()
+    (bundle / "extra_dir" / "scan_log.txt").write_bytes(b"scan log contents")
+    data = json.loads((bundle / "manifest.json").read_text())
+    data["checksums"] = [c.model_dump() for c in checksums.collect(bundle)]
+    (bundle / "manifest.json").write_text(json.dumps(data))
+
+    apply_drop(plan_drop(bundle.parent, bundle.name, count=1))
+
+    assert (bundle / "notes.txt").read_bytes() == b"scanner notes"
+    assert (bundle / "extra_dir" / "scan_log.txt").read_bytes() == b"scan log contents"
+
+
+def test_apply_extras_rule_does_not_resurrect_the_dropped_page(tmp_path):
+    """The generalized extras carryover walks the whole old bundle, so it must
+    not treat the dropped page's own files as unaccounted-for 'extras'."""
+    bundle = make_bundle(tmp_path, num_pages=3)
+    (bundle / "notes.txt").write_bytes(b"scanner notes")
+    data = json.loads((bundle / "manifest.json").read_text())
+    data["checksums"] = [c.model_dump() for c in checksums.collect(bundle)]
+    (bundle / "manifest.json").write_text(json.dumps(data))
+    dropped_image = (bundle / "pages/0001.webp").read_bytes()
+    dropped_thumb = (bundle / "thumbs/0001.webp").read_bytes()
+    dropped_ocr = (bundle / "ocr/0001.json").read_bytes()
+
+    apply_drop(plan_drop(bundle.parent, bundle.name, count=1))
+
+    remaining = {p.read_bytes() for p in bundle.rglob("*") if p.is_file()}
+    assert dropped_image not in remaining
+    assert dropped_thumb not in remaining
+    assert dropped_ocr not in remaining
+    assert not (bundle / "pages/0003.webp").exists()
 
 
 def test_apply_with_count_two(tmp_path):

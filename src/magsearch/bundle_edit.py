@@ -1,3 +1,4 @@
+import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -117,6 +118,34 @@ def _renumbered(rel_path: str, new_number: int) -> str:
     return str(p.with_name(f"{new_number:04d}{p.suffix}"))
 
 
+def _fsync_file(path: Path) -> None:
+    """fsync a single file's freshly written data before it is published by
+    the directory rename, so a power loss can't leave it truncated."""
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_dir_best_effort(path: Path) -> None:
+    """fsync a directory to persist its entries ahead of the swap. Not every
+    platform supports fsync on a directory handle (notably Windows) — this is
+    a durability nicety on top of the rename-based swap, not the correctness
+    guarantee itself, so degrade gracefully rather than raising there.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
 def apply_drop(plan: DropPlan) -> Manifest:
     """Repair the bundle on disk. Returns the manifest now on disk.
 
@@ -133,6 +162,15 @@ def apply_drop(plan: DropPlan) -> Manifest:
     try:
         staging.mkdir()
         new_entries: list[PageEntry] = []
+        # Every path any original page owns (dropped or surviving), plus the
+        # cover and manifest, is accounted for explicitly below. Anything else
+        # found walking the old bundle is an "extra" file — e.g. notes.txt —
+        # that docs/datamodel/bundles.md permits as part of the format and
+        # that must survive the repair untouched, not be silently destroyed.
+        accounted = {"cover.webp", "manifest.json", "manifest.json.tmp"}
+        for page in plan.manifest.pages:
+            accounted.update((page.image_path, page.thumb_path, page.ocr_path))
+
         for new_number, entry in enumerate(plan.surviving, start=1):
             new_entry = PageEntry(
                 page_number=new_number,
@@ -153,8 +191,19 @@ def apply_drop(plan: DropPlan) -> Manifest:
                 dest.hardlink_to(bundle / old_rel)
             new_entries.append(new_entry)
 
-        for original in bundle.glob("original.*"):
-            (staging / original.name).hardlink_to(original)
+        # Carry over every file the repair doesn't otherwise touch. This
+        # generalizes what used to be a narrower `original.*`-only rule, so an
+        # archive copy (whatever its extension) and any other declared or
+        # undeclared extra file both survive at their original relative path.
+        for path in bundle.rglob("*"):
+            if not path.is_file():
+                continue
+            rel = str(path.relative_to(bundle))
+            if rel in accounted:
+                continue
+            dest = staging / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.hardlink_to(path)
 
         # The old cover is a copy of the junk thumbnail — rebuild, never link.
         cover_rel = ""
@@ -171,6 +220,16 @@ def apply_drop(plan: DropPlan) -> Manifest:
         tmp_manifest = staging / "manifest.json.tmp"
         tmp_manifest.write_text(manifest.model_dump_json(indent=2))
         tmp_manifest.replace(staging / "manifest.json")
+
+        # cover.webp and manifest.json are the only newly written data blocks
+        # in staging — everything else is a hardlink to an already-durable old
+        # inode. fsync them and the directory entry before the swap so a power
+        # loss can't leave a live bundle with a truncated manifest and no
+        # backup left to recover from.
+        if cover_rel:
+            _fsync_file(staging / "cover.webp")
+        _fsync_file(staging / "manifest.json")
+        _fsync_dir_best_effort(staging)
 
         bundle.rename(backup)
         try:
