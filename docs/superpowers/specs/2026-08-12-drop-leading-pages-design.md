@@ -47,7 +47,7 @@ one operation, without re-running OCR.
 ## Command
 
 ```
-magsearch drop-leading-pages [IDS...] [--count N] [--dry-run] [--yes/-y]
+magsearch drop-leading-pages [IDS...] [--count N] [--dry-run] [--yes/-y] [--force]
 ```
 
 | Arg / flag       | Meaning |
@@ -56,6 +56,7 @@ magsearch drop-leading-pages [IDS...] [--count N] [--dry-run] [--yes/-y]
 | `--count N`      | Number of leading pages to drop from each named bundle. Default `1`. |
 | `--dry-run`      | Report what would be dropped and stop. No disk or DB writes. |
 | `--yes` / `-y`   | Skip the interactive confirmation prompt (for scripted Docker `exec`). |
+| `--force`        | Bypass the [idempotence guard](#idempotence-guard) only: repair a bundle whose page count no longer matches its archive. |
 
 `--count` applies to every id in the invocation. A bundle needing two pages
 dropped is a separate invocation from those needing one.
@@ -96,16 +97,33 @@ is testable without a CLI runner.
 ```python
 @dataclass
 class DropPlan:
+    bundles_root: Path
     bundle_dir: Path
     magazine_id: str
     count: int
+    manifest: Manifest            # the validated manifest as it is on disk now
     dropped: list[PageEntry]      # manifest entries being removed, in order
     surviving: list[PageEntry]    # remaining entries, old numbering
     new_page_count: int
 
-def plan_drop(bundle_dir: Path, count: int) -> DropPlan
-def apply_drop(plan: DropPlan) -> Manifest       # disk only; returns new manifest
-def resync_magazine(session: Session, manifest: Manifest, count: int) -> None
+@dataclass
+class StagedDrop:
+    plan: DropPlan
+    staging: Path                 # <bundles_root>/<id>.new
+    backup: Path                  # <bundles_root>/<id>.old
+    manifest: Manifest            # the rewritten manifest, already computed
+
+def plan_drop(bundles_root: Path, magazine_id: str, count: int) -> DropPlan
+
+# Disk repair, split so the DB write can sit between staging and the swap —
+# see [Transaction ordering](#transaction-ordering).
+def stage_drop(plan: DropPlan) -> StagedDrop     # builds staging; live bundle untouched
+def commit_drop(staged: StagedDrop) -> Manifest  # the two renames
+def discard_staged(staged: StagedDrop) -> None   # remove an uncommitted staging tree
+def apply_drop(plan: DropPlan) -> Manifest       # commit_drop(stage_drop(plan))
+
+# Returns False when the magazine has no row (disk repaired, nothing to resync).
+def resync_magazine(session: Session, manifest: Manifest, count: int) -> bool
 ```
 
 `plan_drop` performs every refusal check (below) and reads nothing it does not
@@ -239,9 +257,43 @@ and the bundle is reported as skipped. Committing after the swap keeps the windo
 in which disk and DB disagree down to the commit itself. Should the process die
 in that window, the result is a repaired bundle with a stale DB — which
 `magsearch check` reports as a `page_count` mismatch (`health.py:178-180`), and
-which re-running the
-command refuses (page numbers on disk are already `1..N-1`) rather than
-double-dropping.
+and which re-running the command refuses — see the guard below.
+
+## Idempotence guard
+
+Nothing about a repaired bundle *itself* marks it as repaired: its page numbers
+are already a clean `1..N-1` and every checksum verifies, so none of the
+[refusal checks](#refusal-checks) above can tell it apart from a bundle that has
+never been touched. Left to those checks, a second
+`magsearch drop-leading-pages <id> --yes` drops the real magazine cover, prints
+`✓`, exits 0, and `magsearch check --checksums` still reports OK — the bundle is
+internally consistent, just missing a page. Recovery means a delete and full
+re-ingest, which reissues `Page.id`s and destroys that issue's research saves.
+
+`drop_leading_pages_cmd` therefore compares `manifest.page_count` with
+`formats.page_count(original, fmt)` for each bundle, after `plan_drop` succeeds
+and before it is queued for repair. Because `original.<fmt>` is deliberately
+left untouched, it is the only surviving record of the pre-repair page count: a
+pristine bundle's two counts match, a repaired one is short by the pages already
+dropped. This is the same signal the [`ocr-rescale` guard](#ocr-rescale-guard)
+uses, and it runs under `--dry-run` too — a dry run that previews a second drop
+is exactly the report that would talk an operator into performing one.
+
+A mismatch is reported as a skip (`! <id>: …`, naming both counts) and the run
+continues to the remaining ids. `--force` bypasses this one check, for the case
+where a bundle genuinely needs a second page dropped after an earlier repair;
+every other refusal still applies.
+
+The check lives in `cli.py`, not in `plan_drop`, and imports
+`magsearch.ingest.formats` lazily inside the function: `bundle_edit` is imported
+eagerly by `cli.py`, and `formats` pulls in `fitz`/`rarfile` from the optional
+`[ingest]` extra, which `tests/test_cli_lazy_imports.py` forbids at import time.
+
+When the archive cannot be read at all — no `original.*`, an unreadable file, or
+`MissingRarBackendError` because no RAR backend is installed — the question is
+unanswerable. The command warns that the check could not run and repairs anyway:
+the deployment image ships `unar`, and blocking every repair on a tooling gap
+would cost more than the residual risk.
 
 Each bundle gets its own session scope, so one failure does not roll back
 already-repaired bundles.

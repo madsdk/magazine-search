@@ -307,3 +307,78 @@ def test_staging_failure_is_reported_and_others_still_process(tmp_path, monkeypa
     assert "simulated ENOSPC" in r.output
     assert _page_count(bundles, good) == 2
     assert "1 bundle(s) repaired, 1 skipped" in r.output
+
+
+def test_second_repair_is_refused_as_already_repaired(tmp_path, monkeypatch):
+    """The idempotence guard. Nothing inside a repaired bundle marks it as
+    repaired — page numbers are a clean 1..N-1 and every checksum verifies —
+    so without a guard the second run drops the REAL cover, prints `✓`, exits
+    0, and `magsearch check --checksums` still says OK. The untouched
+    `original.<ext>` is the only witness."""
+    bundles = _env(tmp_path, monkeypatch)
+    slug = _ingest_import(tmp_path, bundles, "Byte", "1985-12-01")
+    assert runner.invoke(app, ["drop-leading-pages", slug, "--yes"]).exit_code == 0
+    files_before = _bundle_files(bundles / slug)
+    db_before = _db_state(tmp_path, slug)
+
+    r = runner.invoke(app, ["drop-leading-pages", slug, "--yes"])
+
+    assert r.exit_code != 0, r.output
+    assert "already repaired" in r.output
+    assert "2 pages" in r.output and "has 3" in r.output
+    assert "--force" in r.output
+    assert _page_count(bundles, slug) == 2
+    assert _bundle_files(bundles / slug) == files_before
+    assert _db_state(tmp_path, slug) == db_before
+    assert _no_stray_dirs(bundles, slug)
+
+
+def test_force_allows_a_second_repair(tmp_path, monkeypatch):
+    """The escape hatch: a bundle that genuinely had two junk sheets and was
+    repaired once already."""
+    bundles = _env(tmp_path, monkeypatch)
+    slug = _ingest_import(tmp_path, bundles, "Byte", "1985-12-01", num_pages=4)
+    assert runner.invoke(app, ["drop-leading-pages", slug, "--yes"]).exit_code == 0
+
+    r = runner.invoke(app, ["drop-leading-pages", slug, "--yes", "--force"])
+
+    assert r.exit_code == 0, r.output
+    assert _page_count(bundles, slug) == 2
+    assert _db_state(tmp_path, slug) == (2, [1, 2])
+
+
+def test_dry_run_on_a_repaired_bundle_reports_the_refusal(tmp_path, monkeypatch):
+    """A dry run that cheerfully previews a second drop is exactly the report
+    that would talk an operator into running it, so the guard runs here too."""
+    bundles = _env(tmp_path, monkeypatch)
+    slug = _ingest_import(tmp_path, bundles, "Byte", "1985-12-01")
+    assert runner.invoke(app, ["drop-leading-pages", slug, "--yes"]).exit_code == 0
+
+    r = runner.invoke(app, ["drop-leading-pages", slug, "--dry-run"])
+
+    assert r.exit_code != 0, r.output
+    assert "already repaired" in r.output
+    assert "drop page 1" not in r.output
+    assert _page_count(bundles, slug) == 2
+
+
+def test_unreadable_archive_warns_but_still_repairs(tmp_path, monkeypatch):
+    """No RAR backend installed (or an unreadable original) leaves the
+    question unanswerable. Blocking every repair on a tooling gap would be
+    worse than the residual risk, so it warns and proceeds."""
+    bundles = _env(tmp_path, monkeypatch)
+    slug = _ingest_import(tmp_path, bundles, "Byte", "1985-12-01")
+
+    import magsearch.ingest.formats as formats
+
+    def boom(path, fmt):
+        raise formats.MissingRarBackendError("install unar")
+
+    monkeypatch.setattr(formats, "page_count", boom)
+
+    r = runner.invoke(app, ["drop-leading-pages", slug, "--yes"])
+
+    assert r.exit_code == 0, r.output
+    assert "could not read the source archive" in r.output
+    assert "install unar" in r.output
+    assert _page_count(bundles, slug) == 2

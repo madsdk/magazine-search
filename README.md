@@ -344,6 +344,7 @@ off by one.
 magsearch drop-leading-pages <magazine-id> --dry-run   # confirm it's junk
 magsearch drop-leading-pages <magazine-id>
 magsearch drop-leading-pages <id-a> <id-b> --count 2 --yes
+magsearch drop-leading-pages <magazine-id> --force     # already repaired once
 ```
 
 The dry run prints each page it would drop together with that page's OCR text,
@@ -355,6 +356,34 @@ image, and bundle page N now corresponds to archive page N+count.
 
 `--count` applies to every ID in one invocation. Verify afterwards with
 `magsearch check --checksums <magazine-id>`.
+
+**Running it twice is refused.** A repaired bundle looks pristine from the
+inside — its pages are numbered `1..N` and every checksum verifies — so a second
+run would drop the real cover and report success. The command compares each
+bundle's `manifest.page_count` against its untouched `original.<ext>` and skips
+any bundle where the two have diverged:
+
+```
+! byte-1985-12: manifest has 115 pages but original.cbr has 116 — this bundle
+  looks like it was already repaired …
+```
+
+Pass `--force` — "I know this bundle was already repaired" — when an issue
+genuinely needs a second page dropped after an earlier repair. It bypasses only
+that check; every other refusal still applies. If the archive can't be read at
+all (missing `original.*`, or no RAR backend installed) the command says so and
+repairs anyway, since it can't tell either way.
+
+Two things worth knowing before a big batch:
+
+- **It is silent for a while.** Every named bundle is checksummed up front,
+  before the first repair starts, with no progress output — that means reading
+  every byte of every bundle, 60 MB+ originals included. A batch of a few dozen
+  issues can sit with no output for minutes. It is not hung.
+- **Page numbers shift.** After a repair, page `N` is what used to be page
+  `N + count`, so any URL, bookmark or note referring to a page *number* in a
+  repaired issue now points one page earlier. Saved research pages are keyed on
+  page id, not page number, and follow the page they were saved against.
 
 ## Checking bundle health
 

@@ -351,7 +351,19 @@ def resync_magazine(session: Session, manifest: Manifest, count: int) -> bool:
 
     by_number = {entry.page_number: entry for entry in manifest.pages}
     for page in survivors:
-        entry = by_number[page.page_number]
+        entry = by_number.get(page.page_number)
+        # A bare KeyError here surfaces as `! <id>: 2` — the key rendered as
+        # the whole message — in precisely the case where the operator most
+        # needs to be told what went wrong: the DB rows and the repaired
+        # manifest have drifted apart (a previous run died between the
+        # directory swap and the commit, say).
+        if entry is None:
+            raise BundleEditError(
+                f"database has {len(survivors)} page row(s) after the drop but the "
+                f"repaired manifest has {len(manifest.pages)} page(s), and none of them "
+                f"is page {page.page_number} — database and bundle have drifted; "
+                f"run `magsearch check {manifest.id}` before retrying"
+            )
         page.image_path = f"{manifest.id}/{entry.image_path}"
         page.thumb_path = f"{manifest.id}/{entry.thumb_path}"
 

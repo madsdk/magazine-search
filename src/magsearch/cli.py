@@ -15,6 +15,7 @@ from sqlalchemy.exc import DatabaseError
 from magsearch.bulk_import import bulk_import
 from magsearch.bundle_edit import (
     BundleEditError,
+    DropPlan,
     commit_drop,
     discard_staged,
     page_text_preview,
@@ -334,6 +335,65 @@ def delete_cmd(
     typer.echo(f"deleted {len(deleted_ids)} magazine(s), {total_pages} pages, freed ~{_mb(total_bytes)}")
 
 
+def _archive_page_count(bundle_dir: Path) -> tuple[str, int]:
+    """(filename, page count) of a bundle's `original.<ext>` source archive.
+
+    Raises whatever went wrong — a missing/unreadable archive, an unknown
+    format, or `MissingRarBackendError` — so the caller can decide whether an
+    unanswerable question is fatal. The `magsearch.ingest.formats` import is
+    deferred into the function body on purpose: it pulls in fitz/rarfile from
+    the optional `[ingest]` extra, and `magsearch.cli` must import without
+    them (tests/test_cli_lazy_imports.py).
+    """
+    from magsearch.ingest.formats import detect_format, page_count
+
+    originals = sorted(bundle_dir.glob("original.*"))
+    if not originals:
+        raise FileNotFoundError(f"no original.<ext> in {bundle_dir}")
+    original = originals[0]
+    fmt = detect_format(original)
+    if fmt is None:
+        raise ValueError(f"unrecognized archive format: {original.name}")
+    return original.name, page_count(original, fmt)
+
+
+def _refuse_already_repaired(plan: DropPlan) -> str | None:
+    """Refusal message when a bundle's page numbering has already diverged
+    from its source archive, else None.
+
+    This is the idempotence guard. Nothing *inside* a repaired bundle marks it
+    as repaired — its page numbers are a clean `1..N-1` and every checksum
+    verifies — so a second run would happily drop the real cover and report
+    success. The only surviving witness is the untouched `original.<ext>`,
+    which still holds the junk page: a pristine bundle's page count matches the
+    archive's, a repaired one is short by the number of pages already dropped.
+    Same signal `ocr_rescale_cmd` uses.
+
+    A bundle whose archive cannot be read leaves the question unanswerable. It
+    warns and proceeds rather than failing: the deployment image ships `unar`,
+    and blocking a repair on a tooling gap costs more than the residual risk.
+    """
+    try:
+        original_name, archive_pages = _archive_page_count(plan.bundle_dir)
+    except Exception as exc:
+        typer.echo(
+            f"  ! {plan.magazine_id}: could not read the source archive "
+            f"({exc}) — cannot verify this bundle has not already been "
+            f"repaired; repairing anyway",
+            err=True,
+        )
+        return None
+    if plan.manifest.page_count == archive_pages:
+        return None
+    return (
+        f"manifest has {plan.manifest.page_count} pages but {original_name} has "
+        f"{archive_pages} — this bundle looks like it was already repaired "
+        f"(a repair leaves the archive intact, so the counts diverge). Dropping "
+        f"again would remove the real cover. Re-run with --force if you really "
+        f"do need to drop another page"
+    )
+
+
 @app.command("drop-leading-pages")
 def drop_leading_pages_cmd(
     ids: Annotated[list[str] | None, typer.Argument(help="Magazine IDs to repair.")] = None,
@@ -346,12 +406,27 @@ def drop_leading_pages_cmd(
         typer.Option("--dry-run", help="Report what would be dropped and stop."),
     ] = False,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help=(
+                "\"I know this bundle was already repaired\": drop pages even when the "
+                "manifest's page count no longer matches original.<ext>. Bypasses only "
+                "that check — every other refusal still applies."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Drop junk leading page(s) from imported bundles and renumber the rest.
 
     For issues whose archive put a scan-credits or logo sheet ahead of the
     cover. Renumbers pages on disk and updates the database in place — no
     re-OCR, and `original.<ext>` is left byte-identical.
+
+    Repairing a bundle twice would drop the real cover, so a bundle whose page
+    count no longer matches its `original.<ext>` is refused as already
+    repaired; `--force` overrides that one check.
     """
     ids = ids or []
     if not ids:
@@ -369,6 +444,14 @@ def drop_leading_pages_cmd(
             typer.echo(f"  ! {mid}: {exc}", err=True)
             failed += 1
             continue
+        # Runs in --dry-run too: a dry run that cheerfully previews a second
+        # drop is exactly the report that would talk an operator into it.
+        if not force:
+            refusal = _refuse_already_repaired(plan)
+            if refusal is not None:
+                typer.echo(f"  ! {plan.magazine_id}: {refusal}", err=True)
+                failed += 1
+                continue
         plans.append(plan)
 
     for plan in plans:
@@ -427,7 +510,8 @@ def drop_leading_pages_cmd(
                 if not found:
                     typer.echo(
                         f"  ! {plan.magazine_id}: repaired on disk but not in database — "
-                        f"run `magsearch import {settings.bundles_dir / plan.magazine_id}`"
+                        f"run `magsearch import {settings.bundles_dir / plan.magazine_id}`",
+                        err=True,
                     )
             except BaseException:
                 discard_staged(staged)
@@ -648,25 +732,6 @@ def ocr_rescale_cmd(
             failed_bundles += 1
             continue
 
-        # Positional pairing only holds while bundle page N is archive page N.
-        # `drop-leading-pages` breaks that on purpose, and a rescale against the
-        # wrong source image's dimensions would be silently plausible.
-        try:
-            manifest = Manifest.model_validate_json((bundle / "manifest.json").read_text())
-            archive_pages = page_count(original, fmt)
-        except Exception as exc:
-            typer.echo(f"  ! {bundle.name}: cannot read page counts: {exc} — skipping", err=True)
-            failed_bundles += 1
-            continue
-        if manifest.page_count != archive_pages:
-            typer.echo(
-                f"  · {bundle.name}: manifest has {manifest.page_count} pages but "
-                f"{original.name} has {archive_pages} — page numbering does not match "
-                f"the archive (dropped pages?); skipping"
-            )
-            skipped_bundles += 1
-            continue
-
         # Pre-flight: how many OCR JSONs are still in old (array) format?
         all_ocr = sorted((bundle / "ocr").glob("*.json"))
         pending_pages = set()
@@ -680,6 +745,29 @@ def ocr_rescale_cmd(
 
         if not pending_pages:
             typer.echo(f"  · {bundle.name}: all {len(all_ocr)} pages already in new format")
+            skipped_bundles += 1
+            continue
+
+        # Positional pairing only holds while bundle page N is archive page N.
+        # `drop-leading-pages` breaks that on purpose, and a rescale against the
+        # wrong source image's dimensions would be silently plausible.
+        #
+        # Deliberately below the pending-pages short-circuit: this opens the
+        # archive, so running it first makes a full-corpus re-run pay archive
+        # I/O for every already-migrated bundle it is about to skip anyway.
+        try:
+            manifest = Manifest.model_validate_json((bundle / "manifest.json").read_text())
+            archive_pages = page_count(original, fmt)
+        except Exception as exc:
+            typer.echo(f"  ! {bundle.name}: cannot read page counts: {exc} — skipping", err=True)
+            failed_bundles += 1
+            continue
+        if manifest.page_count != archive_pages:
+            typer.echo(
+                f"  · {bundle.name}: manifest has {manifest.page_count} pages but "
+                f"{original.name} has {archive_pages} — page numbering does not match "
+                f"the archive (dropped pages?); skipping"
+            )
             skipped_bundles += 1
             continue
 

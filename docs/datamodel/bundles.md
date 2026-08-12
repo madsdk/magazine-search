@@ -261,11 +261,21 @@ supported mutation of an imported bundle. It:
 It refuses to touch a bundle whose checksums do not already verify, whose page
 numbers are not exactly `1..N`, or where the drop would leave zero pages.
 
+**A repaired bundle is not distinguishable from a pristine one by its own
+contents.** After a repair the page numbers are again exactly `1..N` and every
+checksum verifies, so none of the refusals above catches a second run — which
+would drop the real cover and leave a bundle that `magsearch check --checksums`
+still calls OK. The command therefore compares `manifest.page_count` against the
+page count of the untouched `original.<fmt>` and refuses any bundle where the
+two have diverged; `--force` overrides that one check, and an unreadable archive
+downgrades it to a warning.
+
 **Consequence for producers and tools:** after a repair, bundle page `N` is
 archive page `N + count`. Any tool that pairs a bundle's pages with its
 `original.<fmt>` positionally must first check `manifest.page_count` against
 the archive's own page count and refuse when they differ —
-`magsearch ocr-rescale` does exactly this.
+`magsearch ocr-rescale` and the repair command's own idempotence guard both do
+exactly this.
 
 ## What ends up in the database vs. on disk
 

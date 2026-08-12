@@ -6,7 +6,7 @@ from alembic.config import Config
 from sqlalchemy import select, text
 
 from alembic import command
-from magsearch.bundle_edit import apply_drop, plan_drop, resync_magazine
+from magsearch.bundle_edit import BundleEditError, apply_drop, plan_drop, resync_magazine
 from magsearch.db import make_engine, make_session_factory, session_scope
 from magsearch.importer import import_bundle
 from magsearch.manifest import Manifest, PageEntry
@@ -258,3 +258,22 @@ def test_resync_handles_count_two(tmp_path, factory):
         pages = s.scalars(select(Page).order_by(Page.page_number)).all()
         assert [p.page_number for p in pages] == [1, 2]
         assert s.get(Magazine, manifest.id).page_count == 2
+
+
+def test_resync_reports_drift_between_rows_and_manifest(tmp_path, factory):
+    """Unguarded, the manifest lookup raises a bare KeyError, which the CLI
+    renders as `! byte-1985-12: 2` — the key as the entire message, in the one
+    situation where the operator needs to be told what drifted."""
+    bundle = _imported(tmp_path, factory)
+    manifest = apply_drop(plan_drop(bundle.parent, bundle.name, count=1))
+    # Two surviving rows, a manifest that only knows about one of them.
+    short = manifest.model_copy(update={"page_count": 1, "pages": manifest.pages[:1]})
+
+    with pytest.raises(BundleEditError) as exc:
+        with session_scope(factory) as s:
+            resync_magazine(s, short, count=1)
+
+    message = str(exc.value)
+    assert "2 page row(s)" in message
+    assert "1 page(s)" in message
+    assert f"magsearch check {manifest.id}" in message
